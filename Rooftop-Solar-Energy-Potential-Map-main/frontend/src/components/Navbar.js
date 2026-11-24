@@ -22,23 +22,31 @@ export default function Navbar({ isLoggedIn, setIsLoggedIn }) {
     <li>
       <Link
         to="/"
-        className="px-4 py-2 text-white text-2xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
+        className="px-4 py-2 text-white text-xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
       >
         Home
       </Link>
     </li>
     <li>
       <Link
-        to="/"
-        className="px-4 py-2 text-white text-2xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
+        to="/dashboard"
+        className="px-4 py-2 text-white text-xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
       >
-        About us
+        Solar Dashboard
       </Link>
     </li>
     <li>
       <Link
-        to="/"
-        className="px-4 py-2 text-white text-2xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
+        to="/about"
+        className="px-4 py-2 text-white text-xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
+      >
+        About
+      </Link>
+    </li>
+    <li>
+      <Link
+        to="/contact"
+        className="px-4 py-2 text-white text-xl rounded-md shadow-md font-normal border-b-2 border-transparent hover:border-blue-600"
       >
         Contact
       </Link>

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { GoogleMap, LoadScript, Polygon } from "@react-google-maps/api";
 import p1 from "../assests/p1.png";
 import solar from "../assests/solar.png";
@@ -6,9 +7,11 @@ import { FaLinkedin, FaInstagram, FaGithub } from "react-icons/fa";
 import axios from "axios";
 
 const Home = () => {
+  const navigate = useNavigate();
   const [map, setMap] = useState(null);
   const [polygon, setPolygon] = useState(null);
-  const [coords, setCoords] = useState("");
+  const [coords, setCoords] = useState("22.5700,88.3600; 22.5750,88.3600; 22.5750,88.3650; 22.5700,88.3650");
+  const [analyzing, setAnalyzing] = useState(false);
   const defaultCenter = { lat: 22.5726, lng: 88.3639 };
 
   const handleMapLoad = (mapInstance) => {
@@ -95,31 +98,69 @@ const Home = () => {
     }
   };
 
-  const savePolygon = async () => {
+  const analyzeSolarPotential = async () => {
     try {
+      setAnalyzing(true);
       const coordsArray = parseCoords(coords);
-      if (coordsArray.length > 0) {
-        const bounds = new window.google.maps.LatLngBounds();
-        coordsArray.forEach((coord) =>
-          bounds.extend(new window.google.maps.LatLng(coord.lat, coord.lng))
-        );
-        const center = bounds.getCenter();
-        const zoom = map.getZoom();
-        const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat()},${center.lng()}&zoom=${zoom}&size=600x400&maptype=satellite&key=AIzaSyB4mze3dCYLlVzGEWO-cyHZYEiV01JD6iM`;
-
-        await axios.post("http://localhost:5000/api/save_polygon", {
-          coordinates: coords,
-          imageUrl: staticMapUrl,
-          user_id: 1, // Replace with actual user ID after implementing authentication
-        });
-        alert("Polygon and image saved successfully");
-      } else {
-        alert("Please enter valid coordinates.");
+      if (coordsArray.length === 0) {
+        alert("Please enter valid coordinates or choose a city preset.");
+        setAnalyzing(false);
+        return;
       }
+
+      const lats = coordsArray.map(c => c.lat);
+      const lngs = coordsArray.map(c => c.lng);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+      const centerLat = (minLat + maxLat) / 2;
+      const centerLng = (minLng + maxLng) / 2;
+
+      const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${centerLat},${centerLng}&zoom=17&size=600x400&maptype=satellite&key=AIzaSyB4mze3dCYLlVzGEWO-cyHZYEiV01JD6iM`;
+
+      // 1. Save polygon record
+      const saveRes = await axios.post("http://localhost:5000/api/save_polygon", {
+        coordinates: coords,
+        imageUrl: staticMapUrl,
+        user_id: 1,
+        bounds: { minLat, maxLat, minLng, maxLng }
+      });
+
+      const polygonId = saveRes.data.polygon_id;
+
+      // 2. Trigger AI rooftop segmentation with validated threshold (>= 0.20)
+      const predRes = await axios.post("http://localhost:5000/api/run_prediction", {
+        polygon_id: polygonId,
+        confidence_threshold: 0.20
+      });
+
+      const predData = predRes.data;
+
+      // 3. Navigate to Dashboard with real results
+      navigate("/dashboard", {
+        state: {
+          polygonId: polygonId,
+          lat1: centerLat,
+          long1: centerLng,
+          mapImageUrl: staticMapUrl,
+          detectedAreaM2: predData.total_rooftop_area_m2,
+          detectedCount: predData.detected_count,
+          conversionMethod: predData.conversion_method,
+          uncertaintyStatus: predData.uncertainty_status,
+          detections: predData.detections
+        }
+      });
     } catch (error) {
-      console.error("Error saving polygon:", error);
-      alert("Error saving polygon");
+      console.error("Error analyzing rooftop solar potential:", error);
+      alert("Error analyzing rooftop solar potential: " + (error.response?.data?.detail || error.message));
+    } finally {
+      setAnalyzing(false);
     }
+  };
+
+  const savePolygon = async () => {
+    await analyzeSolarPotential();
   };
 
   return (
@@ -210,36 +251,67 @@ const Home = () => {
               onChange={handleCoordsChange}
               className="p-2 border border-gray-300 rounded w-full"
             />
-            <div className="flex space-x-2">
+            {/* Quick Demo City Presets */}
+            <div className="flex flex-wrap gap-2 justify-center mb-2">
+              <span className="text-gray-400 text-sm py-1">Quick Demo Presets:</span>
+              <button
+                type="button"
+                onClick={() => setCoords("22.5700,88.3600; 22.5750,88.3600; 22.5750,88.3650; 22.5700,88.3650")}
+                className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-yellow-300 rounded border border-gray-700"
+              >
+                Kolkata CBD
+              </button>
+              <button
+                type="button"
+                onClick={() => setCoords("23.0200,72.5700; 23.0250,72.5700; 23.0250,72.5750; 23.0200,72.5750")}
+                className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-blue-300 rounded border border-gray-700"
+              >
+                Ahmedabad Solar
+              </button>
+              <button
+                type="button"
+                onClick={() => setCoords("12.9700,77.5900; 12.9750,77.5900; 12.9750,77.5950; 12.9700,77.5950")}
+                className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-emerald-300 rounded border border-gray-700"
+              >
+                Bengaluru Hub
+              </button>
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-2">
               <button
                 onClick={searchCoordinates}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
               >
-                Search
+                Search Bounds
               </button>
               <button
                 onClick={createPolygon}
-                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-700"
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm font-medium"
               >
-                Create Polygon
+                Draw Polygon
               </button>
               <button
                 onClick={removePolygon}
-                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-700"
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-medium"
               >
-                Remove Polygon
+                Clear
               </button>
               <button
                 onClick={saveImage}
-                className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-700"
+                className="px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 text-sm font-medium"
               >
-                Save Satellite Image
+                Preview Image
               </button>
               <button
-                onClick={savePolygon}
-                className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-700"
+                onClick={analyzeSolarPotential}
+                disabled={analyzing}
+                className={`px-6 py-2 rounded text-sm font-bold shadow-lg transition ${
+                  analyzing
+                    ? "bg-purple-800 text-gray-300 cursor-wait"
+                    : "bg-purple-600 hover:bg-purple-700 text-white"
+                }`}
               >
-                Save Polygon
+                {analyzing ? "AI Segmenting & Analyzing..." : "⚡ Analyze Solar Potential"}
               </button>
             </div>
           </div>

@@ -1,181 +1,183 @@
-# import numpy as np
-# from roboflow import Roboflow
-# import cv2
-# from flask import current_app
-# import requests
-# from io import BytesIO
-# import tempfile
-
-# def predict_pipeline(db, Polygon):
-#     rf = Roboflow(api_key="S0Ge3PviIu86zB3iTNei")
-#     project = rf.workspace().project("buidling-footprint")
-#     model = project.version(1).model
-
-#     # Query the latest Polygon entry from the database
-#     with current_app.app_context():
-#         latest_polygon = db.session.query(Polygon).order_by(Polygon.created_at.desc()).first()
-
-#     if not latest_polygon:
-#         print("No polygon found in the database.")
-#         return
-
-#     image_url = latest_polygon.image_url
-
-#     # Download the image
-#     response = requests.get(image_url)
-#     image = cv2.imdecode(np.frombuffer(response.content, np.uint8), -1)
-
-#     # Save the image to a temporary file
-#     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-#         cv2.imwrite(temp_file.name, image)
-#         temp_file_path = temp_file.name
-
-#     # Make prediction using the temporary file path
-#     prediction = model.predict(temp_file_path).json()
-
-#     image_height, image_width = image.shape[:2]
-
-#     for obj in prediction['predictions']:
-#         points = obj['points']
-        
-#         mask = np.zeros((image_height, image_width), dtype=np.uint8)
-        
-#         polygon = np.array([[int(point['x']), int(point['y'])] for point in points], dtype=np.int32)
-#         cv2.fillPoly(mask, [polygon], 255)  
-        
-#         area = np.sum(mask > 0)
-        
-#         class_name = obj['class']
-#         confidence = obj['confidence']
-        
-#         print(f"Class: {class_name}, Confidence: {confidence:.2f}, Area: {area} pixels")
-
-#     # Save the annotated prediction
-#     model.predict(temp_file_path).save("annotated_prediction.jpg")
-
-#     print("Prediction completed and saved as annotated_prediction.jpg")
-
-#     # Clean up the temporary file
-#     import os
-#     os.unlink(temp_file_path)
-
-# def run_prediction(db, Polygon):
-#     predict_pipeline(db, Polygon)
-
-# if __name__ == "__main__":
-#     from flask import Flask
-#     from flask_sqlalchemy import SQLAlchemy
-    
-#     app = Flask(__name__)
-#     app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://aman:aman7303@localhost/solar_db'
-#     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-#     db = SQLAlchemy(app)
-    
-#     class Polygon(db.Model):
-#         id = db.Column(db.Integer, primary_key=True)
-#         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-#         coordinates = db.Column(db.Text, nullable=False)
-#         image_path = db.Column(db.String(255))
-#         created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-#         image_url = db.Column(db.String(255))
-
-#     with app.app_context():
-#         run_prediction(db, Polygon)
-import numpy as np
-import cv2
-import torch
-from flask import current_app
-import requests
-from io import BytesIO
-import tempfile
 import os
+import cv2
+import json
+import math
+import logging
+import numpy as np
+from typing import Dict, Any, List, Optional, Tuple
+from PIL import Image
 
-def predict_pipeline(db, Polygon):
-    # Load YOLOv8 model
-    model_path = r'D:\Rooftop-Solar-Energy-Potential-Map\ML\models\best.pt'
-    from ultralytics import YOLO
-    model = YOLO(model_path)
-    
-    # Query the latest Polygon entry from the database
-    with current_app.app_context():
-        latest_polygon = db.session.query(Polygon).order_by(Polygon.created_at.desc()).first()
+logger = logging.getLogger("surya_sankalp.prediction")
 
-    if not latest_polygon:
-        print("No polygon found in the database.")
-        return
+# Lazy-load YOLO model to conserve memory and speed up app boot
+_MODEL = None
 
-    image_url = latest_polygon.image_url
-
-    # Download the image
-    response = requests.get(image_url)
-    image = cv2.imdecode(np.frombuffer(response.content, np.uint8), -1)
-
-    # Save the image to a temporary file
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-        cv2.imwrite(temp_file.name, image)
-        temp_file_path = temp_file.name
-
-    # Make prediction using the temporary file path
-    results = model.predict(temp_file_path)  # This returns a Results object
-    
-    # Process predictions
-    for result in results:  # Iterate over the Results object
-        if len(result.boxes) == 0:  # Check if there are no detections
-            continue
+def get_model():
+    global _MODEL
+    if _MODEL is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # Resolve path to ML/models/best.pt
+        model_path = os.path.abspath(os.path.join(base_dir, "..", "..", "models", "best.pt"))
+        if not os.path.exists(model_path):
+            # Fallback check
+            alt_path = os.path.abspath(os.path.join(base_dir, "..", "models", "best.pt"))
+            if os.path.exists(alt_path):
+                model_path = alt_path
+            else:
+                raise FileNotFoundError(f"YOLO segmentation model weights not found at {model_path}")
         
-        image_height, image_width = image.shape[:2]
+        logger.info(f"Loading YOLOv8 segmentation model from: {model_path}")
+        from ultralytics import YOLO
+        _MODEL = YOLO(model_path)
+    return _MODEL
+
+def haversine_distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates great-circle distance between two GPS coordinates in meters."""
+    R = 6371008.8  # Earth mean radius in meters
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0)**2
+    return 2.0 * R * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+def compute_geodesic_scale(
+    bounds: Dict[str, float],
+    image_width: int,
+    image_height: int
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Computes meters per pixel (GSD) from geographic bounding box and pixel resolution.
+    Returns (gsd_x, gsd_y, pixel_area_m2) or (None, None, None) if bounds are invalid.
+    """
+    try:
+        min_lat = float(bounds["minLat"])
+        max_lat = float(bounds["maxLat"])
+        min_lng = float(bounds["minLng"])
+        max_lng = float(bounds["maxLng"])
         
-        for box in result.boxes:  # Iterate over detected boxes
-            x1, y1, x2, y2 = box.xyxy[0].tolist()  # Extract bounding box coordinates
-            class_id = int(box.cls)  # Extract class ID
-            conf = box.conf[0]  # Extract confidence
+        if max_lat <= min_lat or max_lng <= min_lng or image_width <= 0 or image_height <= 0:
+            return None, None, None
             
-            # Create mask for the detected object
-            mask = np.zeros((image_height, image_width), dtype=np.uint8)
-            polygon = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.int32)  # Simplified bounding box to polygon
-            cv2.fillPoly(mask, [polygon], 255)
-            
-            # Calculate the area of the mask
-            area = np.sum(mask > 0)
-            
-            class_name = model.names[class_id]  # Get class name
-            print(f"Class: {class_name}, Confidence: {conf:.2f}, Area: {area} pixels")
-            
+        mid_lat = (min_lat + max_lat) / 2.0
+        mid_lng = (min_lng + max_lng) / 2.0
+        
+        # Real-world horizontal width across center latitude
+        dx_meters = haversine_distance_meters(mid_lat, min_lng, mid_lat, max_lng)
+        # Real-world vertical height across center longitude
+        dy_meters = haversine_distance_meters(min_lat, mid_lng, max_lat, mid_lng)
+        
+        gsd_x = dx_meters / float(image_width)
+        gsd_y = dy_meters / float(image_height)
+        pixel_area_m2 = gsd_x * gsd_y
+        return gsd_x, gsd_y, pixel_area_m2
+    except Exception as e:
+        logger.warning(f"Could not compute geodesic scale from bounds: {e}")
+        return None, None, None
 
-    # Clean up the temporary file
-    os.unlink(temp_file_path)
-
-def run_prediction(db, Polygon):
-    predict_pipeline(db, Polygon)
-    # annotated_image_path='D:\Rooftop-Solar-Energy-Potential-Map\ML\src\pipelines\annotated_prediction.jpg'
-
-if __name__ == "__main__":
-    from flask import Flask
-    from flask_sqlalchemy import SQLAlchemy
+def run_rooftop_segmentation(
+    image_path: str,
+    bounds: Optional[Dict[str, float]] = None,
+    confidence_threshold: float = 0.15
+) -> Dict[str, Any]:
+    """
+    Runs YOLOv8 instance segmentation to detect building rooftop footprints.
+    Extracts true polygon contours (from result.masks) and computes physical area.
+    """
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Input image file does not exist: {image_path}")
+        
+    # Read and ensure RGB color format
+    pil_img = Image.open(image_path)
+    if pil_img.mode != "RGB":
+        pil_img = pil_img.convert("RGB")
+    np_img = np.array(pil_img)
     
-    app = Flask(__name__)
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://aman:aman7303@localhost/solar_db'
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    db = SQLAlchemy(app)
+    height, width = np_img.shape[:2]
     
-    class Polygon(db.Model):
-        id = db.Column(db.Integer, primary_key=True)
-        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-        coordinates = db.Column(db.Text, nullable=False)
-        image_path = db.Column(db.String(255))
-        created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-        image_url = db.Column(db.String(255))
-
-    with app.app_context():
-        run_prediction(db, Polygon)
-
-
-
-
-
-
-
-
-
-
-
+    # Calculate Ground Sample Distance scale if bounds are available
+    gsd_x, gsd_y, pixel_area_m2 = (None, None, None)
+    if bounds:
+        gsd_x, gsd_y, pixel_area_m2 = compute_geodesic_scale(bounds, width, height)
+        
+    if pixel_area_m2 is not None:
+        conversion_method = "geodesic_bounding_box_scale"
+        uncertainty_status = (
+            "APPROXIMATE_OPTICAL_SCALE: Real-world area computed from boundary geodesic distances. "
+            "Tile perspective distortion and rooftop pitch introduce unquantified variance."
+        )
+    else:
+        conversion_method = "uncalibrated_pixel_only"
+        uncertainty_status = (
+            "UNCALIBRATED: No geographic coordinate bounds provided. Physical area in m² cannot be computed."
+        )
+        
+    model = get_model()
+    # Run inference with confidence threshold
+    results = model.predict(np_img, conf=confidence_threshold)
+    
+    detections: List[Dict[str, Any]] = []
+    total_pixels = 0.0
+    total_area_m2 = 0.0 if pixel_area_m2 is not None else None
+    
+    for r in results:
+        # Check if masks exist for instance segmentation
+        if r.masks is not None and len(r.masks.xy) > 0:
+            for i, mask_points in enumerate(r.masks.xy):
+                if len(mask_points) < 3:
+                    continue
+                contour = np.array(mask_points, dtype=np.float32)
+                # Shoelace / Green's theorem area in pixels
+                pixel_area = float(cv2.contourArea(contour))
+                if pixel_area <= 0:
+                    continue
+                    
+                total_pixels += pixel_area
+                real_area = round(pixel_area * pixel_area_m2, 2) if pixel_area_m2 else None
+                if real_area is not None:
+                    total_area_m2 += real_area
+                    
+                conf = float(r.boxes.conf[i]) if r.boxes is not None and i < len(r.boxes.conf) else 0.50
+                # Extract polygon points as list of [x, y]
+                points = [[round(float(p[0]), 2), round(float(p[1]), 2)] for p in mask_points]
+                
+                detections.append({
+                    "confidence": round(conf, 3),
+                    "polygon_points": points,
+                    "pixel_area": round(pixel_area, 2),
+                    "real_area_m2": real_area
+                })
+        elif r.boxes is not None and len(r.boxes) > 0:
+            # Fallback if model only predicted bounding boxes
+            logger.info("Segmentation masks not returned, falling back to bounding boxes with explicit notation.")
+            for box in r.boxes:
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                conf = float(box.conf[0])
+                w_box = max(0.0, x2 - x1)
+                h_box = max(0.0, y2 - y1)
+                pixel_area = w_box * h_box
+                total_pixels += pixel_area
+                real_area = round(pixel_area * pixel_area_m2, 2) if pixel_area_m2 else None
+                if real_area is not None:
+                    total_area_m2 += real_area
+                
+                points = [[round(x1, 2), round(y1, 2)], [round(x2, 2), round(y1, 2)],
+                          [round(x2, 2), round(y2, 2)], [round(x1, 2), round(y2, 2)]]
+                detections.append({
+                    "confidence": round(conf, 3),
+                    "polygon_points": points,
+                    "pixel_area": round(pixel_area, 2),
+                    "real_area_m2": real_area
+                })
+                
+    if total_area_m2 is not None:
+        total_area_m2 = round(total_area_m2, 2)
+        
+    return {
+        "detected_count": len(detections),
+        "total_rooftop_area_m2": total_area_m2,
+        "total_rooftop_pixels": round(total_pixels, 2),
+        "conversion_method": conversion_method,
+        "source_image_resolution": [width, height],
+        "uncertainty_status": uncertainty_status,
+        "detections": detections
+    }
