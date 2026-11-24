@@ -120,6 +120,8 @@ class DiscomInfo(BaseModel):
     tariff_order: str
     metering_regulation: str
     source_url: str
+    export_settlement_rate: Optional[float] = 2.57
+    tariff_financial_year: Optional[str] = "FY 2026-27"
     supported_categories: List[str]
 
 class StateJurisdiction(BaseModel):

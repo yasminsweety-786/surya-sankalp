@@ -381,8 +381,10 @@ def get_tariffs(db=Depends(get_db)):
             "discom_code": r["discom_code"],
             "discom_name": r["discom_name"],
             "tariff_order": r["tariff_order_ref"],
-            "metering_regulation": "TGERC Rooftop Solar Regulation No. 1 of 2025" if st_code == "TG" else "SERC Rooftop Solar Regulation",
+            "metering_regulation": "TGERC Rooftop Solar Regulation No. 1 of 2025 & Proceeding 29-12-2025 (₹2.57/kWh)" if st_code == "TG" else "SERC Rooftop Solar Regulation",
             "source_url": r["source_url"],
+            "export_settlement_rate": 2.57 if st_code == "TG" else 2.50,
+            "tariff_financial_year": "FY 2026-27",
             "supported_categories": cats
         })
         
@@ -414,13 +416,17 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
                 trusted_rooftop_area = 150.0
                 trusted_usable_area = 105.0
 
-        # 1. Multi-Constraint System Sizing
+        # 1. Multi-Constraint System Sizing (TGERC Reg 1 of 2025 category grid caps)
         sanctioned_load = data.sanctioned_load_kw or 3.0
         monthly_consumption = data.monthly_consumption_kwh or 300.0
+        consumer_category = data.consumer_category or "residential_individual"
+        state_code = data.state_code or "TG"
+
         sizing = size_solar_system(
             usable_area_m2=trusted_usable_area,
             sanctioned_load_kw=sanctioned_load,
-            annual_consumption_kwh=monthly_consumption * 12.0
+            annual_consumption_kwh=monthly_consumption * 12.0,
+            consumer_category=consumer_category
         )
         recommended_capacity = sizing["recommended_capacity_kw"]
 
@@ -432,8 +438,6 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
             annual_gen_for_system = round(annual_solar_gen_kwh * gen_scale, 2)
 
         # 2. PM Surya Ghar Subsidy
-        consumer_category = data.consumer_category or "residential_individual"
-        state_code = data.state_code or "TG"
         subsidy_info = compute_pm_surya_ghar_cfa(
             capacity_kw=recommended_capacity,
             consumer_category=consumer_category,
@@ -458,7 +462,7 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
         else:
             f_self = 0.60  # MODERATE default
 
-        # 5. Net Metering Bill Simulation (Telangana TGERC 2025)
+        # 5. Net Metering Bill Simulation (TGERC 2025 & Proceeding 29-12-2025 @ ₹2.57/kWh)
         bill_sim = simulate_net_metering_annual(
             monthly_consumption_kwh=monthly_consumption,
             annual_solar_gen_kwh=annual_gen_for_system,
@@ -467,7 +471,7 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
             consumer_category=consumer_category
         )
 
-        # 6. Lifecycle Financial Metrics
+        # 6. Lifecycle Financial Metrics (0.7% degradation, Y12 inverter reserve, gross & net)
         lifecycle = compute_lifecycle_metrics(
             gross_system_cost=gross_cost,
             cfa_subsidy=cfa_subsidy,
@@ -505,14 +509,15 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
             bill_sim["annual_electricity_savings"],
             lifecycle["simple_payback_years"],
             lifecycle["twenty_five_year_net_savings"],
-            "TGERC_2025_V1.0",
+            "TGERC_FY2026-27_V1",
             json.dumps({"sizing": sizing, "subsidy": subsidy_info, "bill": bill_sim, "lifecycle": lifecycle})
         ))
         db.commit()
 
         disclaimers = [
-            "Financial simulation based on TGERC Retail Supply Tariff Order FY 2024-25 and TGERC Regulation No. 1 of 2025.",
-            "Subsidies are indicative and subject to National Portal verification, technical feasibility and DCR module certification.",
+            "Financial simulation based on official TGERC Retail Supply Tariff Order FY 2026-27 (effective 01-04-2026 to 31-03-2027) and TGERC Regulation No. 1 of 2025.",
+            "Surplus export settlement rate is ₹2.57/kWh per TGERC Proceeding dated 29-12-2025.",
+            "Subsidies are indicative Central Financial Assistance (CFA) under PM Surya Ghar and subject to National Portal verification, technical feasibility and DCR module certification.",
             "Bill savings are model projections based on selected self-consumption scenario; actual bills depend on meter readings and DISCOM fuel surcharge adjustments."
         ]
 
@@ -523,6 +528,7 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
                 "usable_area_m2": trusted_usable_area,
                 "physical_max_kw": sizing["physical_max_kw"],
                 "sanctioned_load_limit_kw": sizing["sanctioned_load_limit_kw"],
+                "category_grid_limit_pct": sizing["category_grid_limit_pct"],
                 "recommended_capacity_kw": recommended_capacity,
                 "binding_constraint": sizing["binding_constraint"],
                 "sizing_rationale": sizing["sizing_rationale"]
@@ -564,4 +570,5 @@ if os.path.exists(FRONTEND_BUILD_DIR):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=5000, reload=True)
+    port = int(os.environ.get("PORT", 5000))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port)

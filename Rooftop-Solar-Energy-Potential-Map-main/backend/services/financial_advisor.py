@@ -12,26 +12,35 @@ SPECIAL_CATEGORY_STATES = {
 def size_solar_system(
     usable_area_m2: float,
     sanctioned_load_kw: float,
-    annual_consumption_kwh: Optional[float] = None
+    annual_consumption_kwh: Optional[float] = None,
+    consumer_category: str = "residential_individual"
 ) -> Dict[str, Any]:
     """
     Sizes the rooftop solar system using a multi-constraint bounding hierarchy.
-    Applies the Zero-Overrun Rule: Never rounds above the grid sanctioned load.
+    Implements TGERC Regulation No. 1 of 2025:
+      - Residential and Government: maximum 100% of sanctioned load.
+      - Industrial, Commercial and Other: maximum 80% of sanctioned load / contracted demand.
+    Applies the Zero-Overrun Rule: Never rounds above the grid statutory limit.
     """
+    category_lower = consumer_category.lower()
+    is_residential_or_govt = (
+        "residential" in category_lower or "individual" in category_lower or 
+        "rwa" in category_lower or "ghs" in category_lower or "govt" in category_lower or "government" in category_lower
+    )
+    grid_limit_factor = 1.0 if is_residential_or_govt else 0.80
+
     # 1. Physical rooftop constraint (10.0 m² / kWp for crystalline Mono-PERC)
     specific_area_m2_per_kw = 10.0
     p_physical_exact = max(0.0, usable_area_m2 / specific_area_m2_per_kw)
-    # Floor to standard 0.5 kW intervals
     p_physical_stepped = math.floor(p_physical_exact * 2.0) / 2.0
 
-    # 2. Grid regulatory constraint (100% of sanctioned connected load in Telangana)
-    p_grid_exact = max(0.5, float(sanctioned_load_kw))
-    p_grid_stepped = math.floor(p_grid_exact * 2.0) / 2.0
+    # 2. Grid regulatory constraint (TGERC Reg 1 of 2025: 100% for Res/Govt, 80% for Comm/Ind)
+    allowed_grid_kw = sanctioned_load_kw * grid_limit_factor
+    p_grid_stepped = math.floor(allowed_grid_kw * 2.0) / 2.0
 
     # 3. Consumption matching constraint (if consumption is supplied)
     p_consumption_stepped = None
     if annual_consumption_kwh and annual_consumption_kwh > 0:
-        # Standard Indian solar CUF ~ 19% (1 kWp produces ~1500 kWh/year)
         cuf_kwh_per_kw_year = 1500.0
         p_cons_exact = annual_consumption_kwh / cuf_kwh_per_kw_year
         p_consumption_stepped = math.floor(p_cons_exact * 2.0) / 2.0
@@ -42,33 +51,36 @@ def size_solar_system(
         feasible = min(feasible, p_consumption_stepped)
 
     # Minimum practical rooftop installation is 1.0 kWp (or 0.5 kWp if micro-roof)
-    recommended_kw = max(1.0 if p_physical_stepped >= 1.0 else 0.5, feasible)
-    # Ensure zero overrun against sanctioned load
+    recommended_kw = max(1.0 if p_physical_stepped >= 1.0 and p_grid_stepped >= 1.0 else 0.5, feasible)
+    # Ensure zero overrun against statutory grid limit
     recommended_kw = min(recommended_kw, p_grid_stepped)
 
     # Determine binding constraint
     if recommended_kw == p_grid_stepped and p_grid_stepped < p_physical_stepped:
         binding_constraint = "GRID_SANCTIONED_LOAD"
+        cat_desc = "Residential/Govt (100% cap)" if is_residential_or_govt else "Commercial/Industrial (80% cap under TGERC Reg 1 of 2025)"
         sizing_rationale = (
-            f"System capacity is capped at {recommended_kw:.1f} kW by your DISCOM sanctioned load "
-            f"({sanctioned_load_kw:.1f} kW). Rooftop space could physically accommodate {p_physical_stepped:.1f} kW."
+            f"System capacity is capped at {recommended_kw:.1f} kW by statutory grid limits for {cat_desc} "
+            f"(Sanctioned load: {sanctioned_load_kw:.1f} kW, allowed capacity: {allowed_grid_kw:.2f} kW). "
+            f"Rooftop space could physically accommodate {p_physical_stepped:.1f} kW."
         )
     elif recommended_kw == p_physical_stepped and p_physical_stepped < p_grid_stepped:
         binding_constraint = "PHYSICAL_ROOF_AREA"
         sizing_rationale = (
             f"System capacity is sized to {recommended_kw:.1f} kW based on {usable_area_m2:.1f} m² of usable rooftop area. "
-            f"DISCOM sanctioned load permits up to {p_grid_stepped:.1f} kW."
+            f"DISCOM statutory grid limit permits up to {p_grid_stepped:.1f} kW."
         )
     else:
         binding_constraint = "COINCIDENT_ROOF_AND_GRID"
         sizing_rationale = (
-            f"System capacity is optimized at {recommended_kw:.1f} kW where usable rooftop area and grid sanctioned load align."
+            f"System capacity is optimized at {recommended_kw:.1f} kW where usable rooftop area and grid statutory limit align."
         )
 
     return {
         "usable_area_m2": round(usable_area_m2, 2),
         "physical_max_kw": round(p_physical_stepped, 2),
         "sanctioned_load_limit_kw": round(p_grid_stepped, 2),
+        "category_grid_limit_pct": round(grid_limit_factor * 100.0, 1),
         "recommended_capacity_kw": round(recommended_kw, 2),
         "binding_constraint": binding_constraint,
         "sizing_rationale": sizing_rationale
@@ -182,17 +194,22 @@ def get_benchmark_capital_cost(
 def simulate_tgspdcl_bill(
     units_kwh: float,
     sanctioned_load_kw: float = 3.0,
-    consumer_category: str = "residential_individual"
+    consumer_category: str = "residential_individual",
+    baseline_units_kwh: Optional[float] = None
 ) -> Dict[str, float]:
     """
     Calculates monthly electricity bill based on official TGERC Retail Supply Tariff Order
-    for TGSPDCL (Telangana Southern Power Distribution Company).
+    for TGSPDCL (FY 2026-27, Effective 01-04-2026 to 31-03-2027).
+    
+    Fixed charges are strictly calculated from the consumer's sanctioned connected load
+    under their contracted tariff classification, NEVER dynamically downgraded or
+    calculated from installed solar capacity.
     """
     units = max(0.0, float(units_kwh))
     load_kw = max(1.0, float(sanctioned_load_kw))
     category_lower = consumer_category.lower()
 
-    if "commercial" in category_lower:
+    if "commercial" in category_lower or "industrial" in category_lower:
         # Commercial LT-II Non-Domestic
         # Slabs: 0-50 @ ₹7.00, 51+ @ ₹11.50
         fixed_charge = load_kw * 75.0
@@ -209,33 +226,43 @@ def simulate_tgspdcl_bill(
             "total_bill": round(total, 2)
         }
 
-    # Domestic LT-I
-    # Group A: Consumption <= 100 units
-    if units <= 100.0:
-        if units <= 50.0:
-            energy_charge = units * 1.95
-        else:
-            energy_charge = (50.0 * 1.95) + ((units - 50.0) * 3.10)
-        fixed_charge = 25.0  # Customer charge
-    # Group B(i): 101 to 200 units
-    elif units <= 200.0:
-        energy_charge = (100.0 * 3.40) + ((units - 100.0) * 4.80)
-        fixed_charge = 50.0
-    # Group B(ii): Above 200 units (Telescopic Slabs)
-    else:
-        tier1 = 200.0 * 5.10
-        rem1 = units - 200.0
+    # Domestic LT-I (FY 2026-27 Schedule)
+    # Determine contracted classification from sanctioned load or baseline consumption
+    ref_units = baseline_units_kwh if baseline_units_kwh is not None else units
+    is_group_b2 = (load_kw > 2.0) or (ref_units > 200.0)
+    is_group_b1 = (not is_group_b2) and ((load_kw > 1.0) or (ref_units > 100.0))
+
+    if is_group_b2:
+        # Group B(ii): Slabs (Telescopic)
+        # 0-200 @ 5.10, 201-300 @ 7.70, 301-400 @ 9.00, 401-800 @ 9.50, >800 @ 10.00
+        tier1 = min(units, 200.0) * 5.10
+        rem1 = max(0.0, units - 200.0)
         tier2 = min(rem1, 100.0) * 7.70
         rem2 = max(0.0, rem1 - 100.0)
         tier3 = min(rem2, 100.0) * 9.00
         rem3 = max(0.0, rem2 - 100.0)
-        tier4 = min(rem3, 400.0) * 10.00
+        tier4 = min(rem3, 400.0) * 9.50   # FY 2026-27: ₹9.50/kWh
         rem4 = max(0.0, rem3 - 400.0)
-        tier5 = rem4 * 11.00
+        tier5 = rem4 * 10.00              # FY 2026-27: ₹10.00/kWh
         energy_charge = tier1 + tier2 + tier3 + tier4 + tier5
-        fixed_charge = load_kw * 10.0  # ₹10 / kW / month for LT-I(B)(ii)
+        # Fixed charge: ₹10.00 per kW of sanctioned load per month
+        fixed_charge = load_kw * 10.0
+    elif is_group_b1:
+        # Group B(i): 101 to 200 units
+        tier1 = min(units, 100.0) * 3.40
+        rem1 = max(0.0, units - 100.0)
+        tier2 = rem1 * 4.80
+        energy_charge = tier1 + tier2
+        fixed_charge = 50.0
+    else:
+        # Group A: Consumption <= 100 units
+        tier1 = min(units, 50.0) * 1.95
+        rem1 = max(0.0, units - 50.0)
+        tier2 = rem1 * 3.10
+        energy_charge = tier1 + tier2
+        fixed_charge = 25.0 if units <= 50.0 else 30.0
 
-    duty = units * 0.06  # 6 paise per unit
+    duty = units * 0.06  # State electricity duty (6 paise per unit)
     total = energy_charge + fixed_charge + duty
     return {
         "energy_charge": round(energy_charge, 2),
@@ -252,53 +279,102 @@ def simulate_net_metering_annual(
     consumer_category: str = "residential_individual"
 ) -> Dict[str, Any]:
     """
-    Simulates annual net metering energy settlement under TGERC Rooftop Solar Regulation No. 1 of 2025.
-    Accounts for self-consumption timing, monthly netting, banking credit, and unadjusted APPC export settlement.
+    Simulates annual net metering energy settlement under TGERC Regulation No. 1 of 2025
+    and TGERC Proceeding dated 29-12-2025 (Export settlement rate: ₹2.57/kWh).
+    Provides seasonal 12-month reconciliation breakdown.
     """
-    monthly_gen = annual_solar_gen_kwh / 12.0
-    self_consumed = monthly_gen * self_consumption_factor
-    grid_export = monthly_gen - self_consumed
-    grid_import = max(0.0, monthly_consumption_kwh - self_consumed)
+    appc_rate = 2.57  # Approved APPC export settlement rate per TGERC Proceeding 29-12-2025
 
-    # Netting:
-    if grid_import >= grid_export:
-        net_billed_units = grid_import - grid_export
-        surplus_banked_units = 0.0
-        bill_after_dict = simulate_tgspdcl_bill(net_billed_units, sanctioned_load_kw, consumer_category)
-        monthly_bill_after = bill_after_dict["total_bill"]
-    else:
-        net_billed_units = 0.0
-        surplus_banked_units = grid_export - grid_import
-        # Minimum monthly charges maintain connected customer charges
-        bill_after_dict = simulate_tgspdcl_bill(0.0, sanctioned_load_kw, consumer_category)
-        monthly_bill_after = bill_after_dict["total_bill"]
+    # Seasonal variation factors across 12 months for Telangana (normalized sum = 12.0)
+    seasonal_factors = [
+        ("January", 0.95), ("February", 1.05), ("March", 1.15),
+        ("April", 1.20), ("May", 1.18), ("June", 0.90),
+        ("July", 0.75), ("August", 0.75), ("September", 0.88),
+        ("October", 1.02), ("November", 1.08), ("December", 1.09)
+    ]
+    weight_sum = sum(w for _, w in seasonal_factors)
+    seasonal_weights = [(m, (w / weight_sum) * 12.0) for m, w in seasonal_factors]
 
-    bill_before_dict = simulate_tgspdcl_bill(monthly_consumption_kwh, sanctioned_load_kw, consumer_category)
-    monthly_bill_before = bill_before_dict["total_bill"]
+    base_monthly_gen = annual_solar_gen_kwh / 12.0
+    
+    monthly_breakdown = []
+    total_savings_months = 0.0
+    total_surplus_units_year = 0.0
+    total_bill_before_year = 0.0
+    total_bill_after_year = 0.0
 
-    # Annual unadjusted export settlement at approved APPC rate (₹2.65/kWh under TGERC 2025)
-    appc_rate = 2.65
-    annual_surplus_revenue = (surplus_banked_units * 12.0) * appc_rate
+    for month_name, weight in seasonal_weights:
+        m_gen = base_monthly_gen * weight
+        m_self = m_gen * self_consumption_factor
+        m_export = m_gen - m_self
+        m_import = max(0.0, monthly_consumption_kwh - m_self)
 
-    monthly_savings = max(0.0, monthly_bill_before - monthly_bill_after)
-    annual_electricity_savings = round((monthly_savings * 12.0) + annual_surplus_revenue, 2)
+        if m_import >= m_export:
+            net_units = m_import - m_export
+            surplus_units = 0.0
+            bill_after = simulate_tgspdcl_bill(
+                units_kwh=net_units,
+                sanctioned_load_kw=sanctioned_load_kw,
+                consumer_category=consumer_category,
+                baseline_units_kwh=monthly_consumption_kwh
+            )["total_bill"]
+        else:
+            net_units = 0.0
+            surplus_units = m_export - m_import
+            bill_after = simulate_tgspdcl_bill(
+                units_kwh=0.0,
+                sanctioned_load_kw=sanctioned_load_kw,
+                consumer_category=consumer_category,
+                baseline_units_kwh=monthly_consumption_kwh
+            )["total_bill"]
+
+        bill_before = simulate_tgspdcl_bill(
+            units_kwh=monthly_consumption_kwh,
+            sanctioned_load_kw=sanctioned_load_kw,
+            consumer_category=consumer_category,
+            baseline_units_kwh=monthly_consumption_kwh
+        )["total_bill"]
+
+        m_savings = max(0.0, bill_before - bill_after)
+        total_savings_months += m_savings
+        total_surplus_units_year += surplus_units
+        total_bill_before_year += bill_before
+        total_bill_after_year += bill_after
+
+        monthly_breakdown.append({
+            "month": month_name,
+            "solar_gen_kwh": round(m_gen, 1),
+            "consumption_kwh": round(monthly_consumption_kwh, 1),
+            "self_consumed_kwh": round(m_self, 1),
+            "grid_export_kwh": round(m_export, 1),
+            "grid_import_kwh": round(m_import, 1),
+            "net_billed_units": round(net_units, 1),
+            "surplus_banked_units": round(surplus_units, 1),
+            "bill_before_solar": round(bill_before, 2),
+            "bill_after_solar": round(bill_after, 2),
+            "savings": round(m_savings, 2)
+        })
+
+    annual_surplus_revenue = round(total_surplus_units_year * appc_rate, 2)
+    annual_electricity_savings = round(total_savings_months + annual_surplus_revenue, 2)
+    avg_monthly_bill_before = round(total_bill_before_year / 12.0, 2)
+    avg_monthly_bill_after = round(total_bill_after_year / 12.0, 2)
+    avg_monthly_savings = round(annual_electricity_savings / 12.0, 2)
 
     return {
         "monthly_consumption_kwh": round(monthly_consumption_kwh, 2),
-        "monthly_generation_kwh": round(monthly_gen, 2),
+        "monthly_generation_kwh": round(base_monthly_gen, 2),
         "self_consumption_factor": round(self_consumption_factor, 2),
-        "self_consumed_kwh": round(self_consumed, 2),
-        "grid_exported_kwh": round(grid_export, 2),
-        "grid_imported_kwh": round(grid_import, 2),
-        "net_billed_units": round(net_billed_units, 2),
-        "surplus_banked_units": round(surplus_banked_units, 2),
-        "monthly_bill_before_solar": monthly_bill_before,
-        "monthly_bill_after_solar": monthly_bill_after,
-        "monthly_savings": monthly_savings,
-        "annual_export_revenue": round(annual_surplus_revenue, 2),
+        "monthly_bill_before_solar": avg_monthly_bill_before,
+        "monthly_bill_after_solar": avg_monthly_bill_after,
+        "monthly_savings": avg_monthly_savings,
+        "annual_export_revenue": annual_surplus_revenue,
         "annual_electricity_savings": annual_electricity_savings,
         "export_settlement_rate": appc_rate,
-        "regulation_reference": "TGERC (Rooftop Solar PV Grid Interactive Systems) Regulation No. 1 of 2025"
+        "settlement_proceeding_ref": "TGERC Proceeding dated 29-12-2025 (APPC ₹2.57/kWh)",
+        "tariff_schedule_ref": "TGERC Retail Supply Tariff Order FY 2026-27",
+        "regulation_reference": "TGERC (Rooftop Solar PV Grid Interactive Systems) Regulation No. 1 of 2025",
+        "monthly_breakdown": monthly_breakdown
     }
 
 def compute_lifecycle_metrics(
@@ -308,9 +384,10 @@ def compute_lifecycle_metrics(
     annual_solar_gen_kwh: float
 ) -> Dict[str, Any]:
     """
-    Computes 25-year lifecycle financial metrics including simple payback period,
-    NPV, LCOE, and accounting for PV module degradation and maintenance reserves.
-    Protects against division-by-zero or negative payback periods.
+    Computes 25-year lifecycle financial metrics.
+    Includes simple payback period, NPV, LCOE, and accounting for PV module degradation (0.7%/yr),
+    O&M escalating at 4.0%/yr, and inverter replacement reserve at Year 12 (18% of initial capex).
+    Returns both gross savings and savings net of initial consumer investment.
     """
     net_investment = max(0.0, gross_system_cost - cfa_subsidy)
 
@@ -323,14 +400,15 @@ def compute_lifecycle_metrics(
         payback_status = "VIABLE"
 
     # 25-Year Lifecycle Cashflow Projection
-    # Assumptions: 0.6% annual degradation after year 1, 1.2% initial capex O&M escalating at 4%,
+    # Assumptions: 0.7% annual degradation after year 1, 1.2% initial capex O&M escalating at 4%,
     # Inverter replacement reserve at Year 12 (18% of capex), 3.5% tariff escalation, 8.5% discount rate
     discount_rate = 0.085
     tariff_escalation = 0.035
     inverter_reserve = gross_system_cost * 0.18
     annual_om_base = gross_system_cost * 0.012
 
-    cumulative_savings_25yr = 0.0
+    cumulative_savings_gross = 0.0
+    cumulative_net_cashflow = 0.0
     npv_savings = -net_investment
     cumulative_generation_25yr = 0.0
 
@@ -339,16 +417,20 @@ def compute_lifecycle_metrics(
 
     for year in range(1, 26):
         if year > 1:
-            current_gen *= (1.0 - 0.006)
-            current_savings *= (1.0 + tariff_escalation) * (1.0 - 0.006)
+            current_gen *= (1.0 - 0.007)
+            current_savings *= (1.0 + tariff_escalation) * (1.0 - 0.007)
 
         om_cost = annual_om_base * ((1.0 + 0.04) ** (year - 1))
         inverter_cost = inverter_reserve if year == 12 else 0.0
         net_cashflow_year = current_savings - om_cost - inverter_cost
 
-        cumulative_savings_25yr += net_cashflow_year
+        cumulative_savings_gross += current_savings
+        cumulative_net_cashflow += net_cashflow_year
         npv_savings += net_cashflow_year / ((1.0 + discount_rate) ** year)
         cumulative_generation_25yr += current_gen
+
+    # Twenty-five year net savings = total net cashflow minus initial net investment
+    twenty_five_year_net_savings = round(cumulative_net_cashflow - net_investment, 2)
 
     # Levelized Cost of Electricity (LCOE)
     # LCOE = (Total Lifecycle Cost) / (Total Lifecycle Generation)
@@ -359,7 +441,10 @@ def compute_lifecycle_metrics(
         "net_consumer_investment": round(net_investment, 2),
         "simple_payback_years": simple_payback_years,
         "payback_status": payback_status,
-        "twenty_five_year_net_savings": round(cumulative_savings_25yr, 2),
+        "twenty_five_year_net_savings": twenty_five_year_net_savings,
+        "twenty_five_year_gross_savings": round(cumulative_savings_gross, 2),
+        "twenty_five_year_net_cashflow_before_capex": round(cumulative_net_cashflow, 2),
+        "accounting_definition": "twenty_five_year_net_savings is NET of initial consumer investment, accounting for 0.7%/yr degradation, 1.2%/yr O&M, and yr-12 inverter replacement",
         "npv_savings": round(npv_savings, 2),
         "lcoe_per_kwh": lcoe_per_kwh,
         "cumulative_generation_25yr_kwh": round(cumulative_generation_25yr, 2)

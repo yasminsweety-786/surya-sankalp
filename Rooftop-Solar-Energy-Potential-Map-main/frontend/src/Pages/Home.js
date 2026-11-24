@@ -6,6 +6,8 @@ import solar from "../assests/solar.png";
 import { FaLinkedin, FaInstagram, FaGithub } from "react-icons/fa";
 import axios from "axios";
 
+const API_BASE = process.env.REACT_APP_API_URL || (typeof window !== 'undefined' && window.location.origin.includes('localhost:3000') ? 'http://localhost:5000' : '');
+
 const Home = () => {
   const navigate = useNavigate();
   const [map, setMap] = useState(null);
@@ -120,7 +122,7 @@ const Home = () => {
       const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${centerLat},${centerLng}&zoom=17&size=600x400&maptype=satellite&key=AIzaSyB4mze3dCYLlVzGEWO-cyHZYEiV01JD6iM`;
 
       // 1. Save polygon record
-      const saveRes = await axios.post("http://localhost:5000/api/save_polygon", {
+      const saveRes = await axios.post(`${API_BASE}/api/save_polygon`, {
         coordinates: coords,
         imageUrl: staticMapUrl,
         user_id: 1,
@@ -130,7 +132,7 @@ const Home = () => {
       const polygonId = saveRes.data.polygon_id;
 
       // 2. Trigger AI rooftop segmentation with validated threshold (>= 0.20)
-      const predRes = await axios.post("http://localhost:5000/api/run_prediction", {
+      const predRes = await axios.post(`${API_BASE}/api/run_prediction`, {
         polygon_id: polygonId,
         confidence_threshold: 0.20
       });

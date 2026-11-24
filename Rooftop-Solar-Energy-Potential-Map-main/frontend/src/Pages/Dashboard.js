@@ -14,6 +14,8 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+const API_BASE = process.env.REACT_APP_API_URL || (typeof window !== 'undefined' && window.location.origin.includes('localhost:3000') ? 'http://localhost:5000' : '');
+
 function Dashboard() {
   const location = useLocation();
   const state = location.state || {};
@@ -36,45 +38,23 @@ function Dashboard() {
   const [estimateError, setEstimateError] = useState(null);
 
   // Phase 2 Financial Feasibility & DISCOM Tariff States
-  const [jurisdictions, setJurisdictions] = useState([]);
   const [selectedState, setSelectedState] = useState('TG');
   const [selectedDiscom, setSelectedDiscom] = useState('TGSPDCL');
   const [consumerCategory, setConsumerCategory] = useState('residential_individual');
   const [sanctionedLoad, setSanctionedLoad] = useState(4.0);
   const [monthlyConsumption, setMonthlyConsumption] = useState(350);
   const [selfConsumptionScenario, setSelfConsumptionScenario] = useState('MODERATE');
+  const [showMonthlyBreakdown, setShowMonthlyBreakdown] = useState(false);
   const [financialData, setFinancialData] = useState(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [financialError, setFinancialError] = useState(null);
 
-  // 1. Fetch available DISCOM tariffs on mount
-  useEffect(() => {
-    const fetchTariffs = async () => {
-      try {
-        const res = await axios.get('http://localhost:5000/api/tariffs');
-        if (res.data && res.data.jurisdictions) {
-          setJurisdictions(res.data.jurisdictions);
-          if (res.data.jurisdictions.length > 0) {
-            const first = res.data.jurisdictions[0];
-            setSelectedState(first.state_code);
-            if (first.discoms && first.discoms.length > 0) {
-              setSelectedDiscom(first.discoms[0].discom_code);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load dynamic tariffs list:', err);
-      }
-    };
-    fetchTariffs();
-  }, []);
-
-  // 2. Fetch Solar Estimate (Phase 1)
+  // 1. Fetch Solar Estimate (Phase 1)
   const fetchEstimate = useCallback(async () => {
     setLoadingEstimate(true);
     setEstimateError(null);
     try {
-      const response = await axios.post('http://localhost:5000/api/estimate', {
+      const response = await axios.post(`${API_BASE}/api/estimate`, {
         polygon_id: polygonId || null,
         latitude: lat1,
         longitude: long1,
@@ -95,7 +75,7 @@ function Dashboard() {
     fetchEstimate();
   }, [fetchEstimate]);
 
-  // 3. Fetch Financial Assessment (Phase 2 - Area Integrity Rule)
+  // 2. Fetch Financial Assessment (Phase 2 - Area Integrity Rule)
   const fetchFinancialAssessment = useCallback(async (currentEstData) => {
     setLoadingFinancial(true);
     setFinancialError(null);
@@ -113,7 +93,7 @@ function Dashboard() {
         self_consumption_scenario: selfConsumptionScenario,
       };
 
-      const res = await axios.post('http://localhost:5000/api/financial_assessment', payload);
+      const res = await axios.post(`${API_BASE}/api/financial_assessment`, payload);
       setFinancialData(res.data);
     } catch (err) {
       console.error('Error computing financial assessment:', err);
@@ -170,6 +150,8 @@ function Dashboard() {
   const capex = financialData?.capex_and_subsidy;
   const billSim = financialData?.bill_simulation;
   const metrics = financialData?.metrics;
+  const isCommercial = consumerCategory === 'commercial';
+  const gridLimitPct = isCommercial ? 80 : 100;
 
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-7xl font-sans text-white">
@@ -196,13 +178,24 @@ function Dashboard() {
         </Link>
       </div>
 
+      {/* Mandatory Non-Guaranteed Disclaimer Banner */}
+      <div className="mb-4 p-3 bg-amber-950/40 border border-amber-600/60 rounded-xl text-xs text-amber-200 flex items-center justify-between">
+        <div>
+          <span className="font-bold text-amber-300 uppercase tracking-wide mr-2">Notice:</span>
+          <span>
+            All generation potential, bill savings, and payback figures are <strong>techno-economic feasibility estimates</strong> for planning purposes and do <strong>NOT</strong> constitute guaranteed financial returns.
+          </span>
+        </div>
+        <span className="text-[11px] text-amber-400/80 hidden md:block">Subject to DISCOM Interconnection Feasibility</span>
+      </div>
+
       {/* Provenance & Uncertainty Banner */}
       {estimateData && (
         <div
           className={`mb-6 p-4 rounded-xl border flex flex-col md:flex-row justify-between items-start md:items-center ${
             estimateData.is_fallback
-              ? 'bg-amber-950/40 border-amber-600/60 text-amber-200'
-              : 'bg-emerald-950/40 border-emerald-600/60 text-emerald-200'
+              ? 'bg-amber-950/30 border-amber-700/50 text-amber-200'
+              : 'bg-emerald-950/30 border-emerald-700/50 text-emerald-200'
           }`}
         >
           <div>
@@ -281,7 +274,7 @@ function Dashboard() {
             <span className="text-sm font-normal text-gray-400">kWp</span>
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Multi-constraint feasible sizing
+            Feasible multi-constraint sizing
           </p>
         </div>
       </div>
@@ -299,7 +292,7 @@ function Dashboard() {
               </h2>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Official TGERC Tariff Schedule FY 2024-25 • TGERC Rooftop Regulation No. 1 of 2025 • MNRE PM Surya Ghar CFA
+              Official TGSPDCL Tariff Order FY 2026-27 (01-04-2026 to 31-03-2027) • TGERC Rooftop Regulation No. 1 of 2025 • Proceeding dated 29-12-2025 (APPC ₹2.57/kWh) • MNRE PM Surya Ghar CFA
             </p>
           </div>
           <button
@@ -323,9 +316,11 @@ function Dashboard() {
               onChange={(e) => setSelectedDiscom(e.target.value)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-white text-sm focus:border-yellow-400 focus:outline-none"
             >
-              <option value="TGSPDCL">Telangana - TGSPDCL (TGERC FY24-25)</option>
+              <option value="TGSPDCL">Telangana - TGSPDCL (FY 2026-27 Active)</option>
             </select>
-            <span className="text-[11px] text-gray-500">Reg: TGERC Order FY 2024-25</span>
+            <span className="text-[11px] text-gray-500">
+              Schedule: <a href="https://tgsouthernpower.org/resources/PDF/Tariffs/69tarifffile.pdf" target="_blank" rel="noreferrer" className="text-yellow-400 underline">FY 2026-27 (Valid to 31-03-2027)</a>
+            </span>
           </div>
 
           {/* 2. Consumer Category */}
@@ -338,12 +333,12 @@ function Dashboard() {
               onChange={(e) => setConsumerCategory(e.target.value)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-white text-sm focus:border-yellow-400 focus:outline-none"
             >
-              <option value="residential_individual">Residential Individual (LT-I)</option>
-              <option value="residential_rwa_ghs">Residential RWA / Group Housing</option>
-              <option value="commercial">Commercial / Non-Domestic (LT-II)</option>
+              <option value="residential_individual">Residential Individual (LT-I: 100% load cap)</option>
+              <option value="residential_rwa_ghs">Residential RWA / Group Housing (LT-I: 100% cap)</option>
+              <option value="commercial">Commercial / Non-Domestic (LT-II: 80% load cap)</option>
             </select>
-            <span className="text-[11px] text-gray-500">
-              {consumerCategory === 'commercial' ? '⚠️ Not eligible for PM Surya Ghar' : '✓ PM Surya Ghar eligible'}
+            <span className="text-[11px] text-gray-400">
+              Cap: <strong className={isCommercial ? "text-amber-400" : "text-emerald-400"}>{gridLimitPct}% of Sanctioned Load</strong>
             </span>
           </div>
 
@@ -361,7 +356,9 @@ function Dashboard() {
               onChange={(e) => setSanctionedLoad(parseFloat(e.target.value))}
               className="w-full accent-yellow-400 mt-2"
             />
-            <span className="text-[11px] text-gray-500">Legal grid limit: 100% of sanctioned load</span>
+            <span className="text-[11px] text-gray-500">
+              Statutory Grid Cap: {Number(sanctionedLoad * (gridLimitPct / 100)).toFixed(1)} kW max
+            </span>
           </div>
 
           {/* 4. Monthly Consumption */}
@@ -378,7 +375,9 @@ function Dashboard() {
               onChange={(e) => setMonthlyConsumption(parseInt(e.target.value))}
               className="w-full accent-emerald-400 mt-2"
             />
-            <span className="text-[11px] text-gray-500">~₹{Math.round(monthlyConsumption * 7.5)}/mo current estimate</span>
+            <span className="text-[11px] text-gray-500">
+              Baseline Tariff Slab: {monthlyConsumption > 200 ? 'Group B(ii) Telescopic' : monthlyConsumption > 100 ? 'Group B(i)' : 'Group A'}
+            </span>
           </div>
         </div>
 
@@ -389,7 +388,7 @@ function Dashboard() {
               Daytime Solar Self-Consumption Scenario
             </h4>
             <p className="text-xs text-gray-400 mt-0.5">
-              Determines proportion of solar power consumed on-site (avoiding high retail tariff slabs) vs exported to the grid at APPC rate (₹2.65/kWh).
+              Determines on-site solar consumption (offsetting retail slabs up to ₹10.00/kWh in FY26-27) vs exported units settled at the Commission-approved APPC rate (₹2.57/kWh).
             </p>
           </div>
           <div className="flex gap-2">
@@ -416,7 +415,7 @@ function Dashboard() {
         {/* Financial Feasibility Detail Cards */}
         {financialData && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            {/* Card 1: System Sizing & Physical Constraints */}
+            {/* Card 1: System Sizing & Statutory Limits */}
             <div className="bg-gray-950 border border-gray-800 p-5 rounded-xl flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -444,8 +443,10 @@ function Dashboard() {
                     <span className="font-semibold text-gray-300">{sizing?.physical_max_kw} kWp</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-gray-900">
-                    <span className="text-gray-400">Sanctioned Load Cap:</span>
-                    <span className="font-semibold text-gray-300">{sizing?.sanctioned_load_limit_kw} kW</span>
+                    <span className="text-gray-400">Category Statutory Limit:</span>
+                    <span className="font-semibold text-gray-300">
+                      {sizing?.category_grid_limit_pct}% of load ({sizing?.sanctioned_load_limit_kw} kW)
+                    </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-800 bg-gray-900/40 px-2 rounded">
                     <span className="text-yellow-400 font-bold">Recommended Capacity:</span>
@@ -456,13 +457,13 @@ function Dashboard() {
                 </div>
 
                 <div className="mt-3 p-3 bg-gray-900/70 rounded-lg text-xs text-gray-300 border border-gray-800">
-                  <p className="font-semibold text-gray-200 mb-1">Sizing Engineering Rationale:</p>
+                  <p className="font-semibold text-gray-200 mb-1">Regulatory Sizing Rationale:</p>
                   <p>{sizing?.sizing_rationale}</p>
                 </div>
               </div>
 
               <p className="text-[11px] text-gray-500 mt-3">
-                Zero-Overrun Rule: Never rounds capacity above sanctioned grid interconnection limit.
+                Zero-Overrun Rule: Strict floor rounding ensures capacity never exceeds {gridLimitPct}% grid limit.
               </p>
             </div>
 
@@ -513,13 +514,13 @@ function Dashboard() {
 
                 <div className="mt-3 p-3 bg-gray-900/70 rounded-lg text-xs text-gray-300 border border-gray-800">
                   <p className="font-semibold text-gray-200 mb-1">CFA Subsidy Calculation:</p>
-                  <p>{capex?.cfa_breakdown_description}</p>
+                  <p>{capex?.subsidy_tier_breakdown || capex?.cfa_breakdown_description}</p>
                 </div>
               </div>
 
               <div className="mt-3 flex items-center justify-between text-[11px] text-gray-400">
-                <span>Status: <strong className="text-amber-400">INDICATIVE VERIFICATION</strong></span>
-                <span>Portal: pmsuryaghar.gov.in</span>
+                <span>Status: <strong className="text-amber-400">INDICATIVE ESTIMATE</strong></span>
+                <span>DBT: pmsuryaghar.gov.in</span>
               </div>
             </div>
 
@@ -543,19 +544,19 @@ function Dashboard() {
 
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between py-1 border-b border-gray-900">
-                    <span className="text-gray-400">Monthly Bill Before Solar:</span>
+                    <span className="text-gray-400">Avg Bill Before Solar:</span>
                     <span className="font-semibold text-rose-400">
                       ₹{Number(billSim?.monthly_bill_before_solar).toLocaleString()} / mo
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-gray-900">
-                    <span className="text-gray-400">Monthly Bill After Solar:</span>
+                    <span className="text-gray-400">Avg Bill After Solar:</span>
                     <span className="font-semibold text-emerald-400">
                       ₹{Number(billSim?.monthly_bill_after_solar).toLocaleString()} / mo
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-gray-900">
-                    <span className="text-gray-400">Monthly Savings:</span>
+                    <span className="text-gray-400">Average Monthly Savings:</span>
                     <span className="font-bold text-yellow-400">
                       ₹{Number(billSim?.monthly_savings).toLocaleString()} / mo
                     </span>
@@ -567,7 +568,7 @@ function Dashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-800 bg-blue-950/30 px-2 rounded border border-blue-900/40">
-                    <span className="text-white font-bold">25-Year Cumulative Savings:</span>
+                    <span className="text-white font-bold">25-Yr Net Savings (Net of Capex):</span>
                     <span className="text-lg font-bold text-blue-400">
                       ₹{Number(metrics?.twenty_five_year_net_savings).toLocaleString()}
                     </span>
@@ -578,11 +579,14 @@ function Dashboard() {
                   <p>
                     • <strong>Grid Export Settlement:</strong>{' '}
                     {billSim?.annual_export_revenue > 0
-                      ? `₹${Number(billSim.annual_export_revenue).toLocaleString()} @ APPC ₹2.65/kWh`
+                      ? `₹${Number(billSim.annual_export_revenue).toLocaleString()} @ APPC ₹2.57/kWh`
                       : 'Zero surplus (100% absorbed in-house)'}
                   </p>
                   <p>
-                    • <strong>Levelized Cost (LCOE):</strong> ₹{metrics?.lcoe_per_kwh} / kWh (Grid: ~₹7.50+)
+                    • <strong>Levelized Cost (LCOE):</strong> ₹{metrics?.lcoe_per_kwh} / kWh (Grid: ~₹5.10–₹10.00)
+                  </p>
+                  <p>
+                    • <strong>25-Yr Gross Cashflow:</strong> ₹{Number(metrics?.twenty_five_year_gross_savings).toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -594,26 +598,144 @@ function Dashboard() {
           </div>
         )}
 
-        {/* Regulatory Disclosures & Citations Footer */}
-        <div className="p-4 bg-gray-950/80 rounded-xl border border-gray-800 text-xs text-gray-400 space-y-1.5">
-          <p className="font-bold text-gray-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-            <span>⚖</span> Official Regulatory Sources & Methodological Disclosures:
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1 text-[11px]">
-            <p>
-              • <strong>Tariff Schedule:</strong> TGERC Retail Supply Tariff Order FY 2024-25 (O.P. Nos. 104 & 105 of 2024)
-            </p>
-            <p>
-              • <strong>Metering Regulation:</strong> TGERC Rooftop Solar Regulation No. 1 of 2025 (APPC settlement @ ₹2.65/kWh)
-            </p>
-            <p>
-              • <strong>Subsidy Scheme:</strong> MNRE PM Surya Ghar: Muft Bijli Yojana (Operational Guidelines Feb 2024)
-            </p>
+        {/* Seasonal Month-by-Month Reconciliation Breakdown (Requirement 4) */}
+        {billSim?.monthly_breakdown && (
+          <div className="mt-4 p-4 bg-gray-950/90 rounded-xl border border-gray-800">
+            <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowMonthlyBreakdown(!showMonthlyBreakdown)}>
+              <div>
+                <h3 className="text-sm font-bold text-yellow-400 flex items-center gap-2">
+                  <span>📅</span> Seasonal Month-by-Month Generation & Bill Reconciliation
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Reconciles monthly tariff impacts against seasonal solar generation in Telangana (Summer vs Monsoon).
+                </p>
+              </div>
+              <button className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-xs rounded text-gray-300">
+                {showMonthlyBreakdown ? '▲ Hide Breakdown' : '▼ View 12-Month Table'}
+              </button>
+            </div>
+
+            {showMonthlyBreakdown && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-xs text-gray-300 border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-800 text-gray-400 font-mono uppercase text-[10px]">
+                      <th className="py-2 px-3">Month</th>
+                      <th className="py-2 px-3">Solar Gen (kWh)</th>
+                      <th className="py-2 px-3">Consumption</th>
+                      <th className="py-2 px-3">Self-Consumed</th>
+                      <th className="py-2 px-3">Export</th>
+                      <th className="py-2 px-3">Import</th>
+                      <th className="py-2 px-3">Net Billed</th>
+                      <th className="py-2 px-3">Bill Before</th>
+                      <th className="py-2 px-3">Bill After</th>
+                      <th className="py-2 px-3 text-emerald-400">Savings (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {billSim.monthly_breakdown.map((row) => (
+                      <tr key={row.month} className="border-b border-gray-900 hover:bg-gray-900/50">
+                        <td className="py-2 px-3 font-semibold text-white">{row.month}</td>
+                        <td className="py-2 px-3 text-yellow-300">{row.solar_gen_kwh}</td>
+                        <td className="py-2 px-3">{row.consumption_kwh}</td>
+                        <td className="py-2 px-3 text-gray-400">{row.self_consumed_kwh}</td>
+                        <td className="py-2 px-3 text-blue-300">{row.grid_export_kwh}</td>
+                        <td className="py-2 px-3 text-gray-400">{row.grid_import_kwh}</td>
+                        <td className="py-2 px-3 font-mono">{row.net_billed_units}</td>
+                        <td className="py-2 px-3 text-rose-300">₹{row.bill_before_solar}</td>
+                        <td className="py-2 px-3 text-emerald-300">₹{row.bill_after_solar}</td>
+                        <td className="py-2 px-3 font-bold text-emerald-400">₹{row.savings}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-700 bg-gray-900 font-bold text-white text-xs">
+                      <td className="py-2 px-3">Annual Total</td>
+                      <td className="py-2 px-3 text-yellow-300">
+                        {billSim.monthly_breakdown.reduce((sum, r) => sum + r.solar_gen_kwh, 0).toFixed(1)} kWh
+                      </td>
+                      <td className="py-2 px-3">
+                        {billSim.monthly_breakdown.reduce((sum, r) => sum + r.consumption_kwh, 0).toFixed(1)} kWh
+                      </td>
+                      <td className="py-2 px-3" colSpan="4">
+                        Annual Reconciled Settlement
+                      </td>
+                      <td className="py-2 px-3 text-rose-300">
+                        ₹{billSim.monthly_breakdown.reduce((sum, r) => sum + r.bill_before_solar, 0).toFixed(2)}
+                      </td>
+                      <td className="py-2 px-3 text-emerald-300">
+                        ₹{billSim.monthly_breakdown.reduce((sum, r) => sum + r.bill_after_solar, 0).toFixed(2)}
+                      </td>
+                      <td className="py-2 px-3 text-emerald-400 text-sm">
+                        ₹{billSim.annual_electricity_savings.toFixed(2)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
-          <p className="text-[10px] text-gray-500 pt-1 border-t border-gray-900">
-            Disclaimer: Estimates are algorithmic simulations for technical and financial planning. Actual generation depends on shading, panel orientation, and weather. Net metering and subsidy approvals are subject to DISCOM technical feasibility and MNRE portal validation.
-          </p>
+        )}
+
+        {/* Regulatory Disclosures & Citations Section (Requirement 5) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          {/* Box A: Official Regulatory Values & Sources */}
+          <div className="p-4 bg-gray-950/80 rounded-xl border border-gray-800 text-xs text-gray-300 space-y-2">
+            <h4 className="font-bold text-yellow-400 uppercase tracking-wider text-xs flex items-center gap-1.5">
+              <span>🏛</span> Official Regulatory Framework & Sourced Values
+            </h4>
+            <ul className="space-y-1.5 text-[11px] text-gray-300">
+              <li>
+                • <strong>Tariff Financial Year:</strong> <span className="text-white">FY 2026-27</span> (Effective 01-04-2026 to 31-03-2027)
+                <br /><span className="text-gray-500">Source: <a href="https://tgsouthernpower.org/resources/PDF/Tariffs/69tarifffile.pdf" target="_blank" rel="noreferrer" className="text-yellow-400 underline">TGSPDCL Tariff Order</a> (401–800 units @ ₹9.50/kWh, &gt;800 units @ ₹10.00/kWh)</span>
+              </li>
+              <li>
+                • <strong>Export Settlement Rate:</strong> <span className="text-white">₹2.57 / kWh</span> (APPC rate)
+                <br /><span className="text-gray-500">Source: <a href="https://www.tgerc.telangana.gov.in/file_upload/uploads/Regulations/Final/tserc/2025/Proceeding%20Solar.pdf" target="_blank" rel="noreferrer" className="text-yellow-400 underline">TGERC Proceeding dated 29-12-2025</a></span>
+              </li>
+              <li>
+                • <strong>Statutory Grid Capacity Limit:</strong> <span className="text-white">100% for Residential/Govt</span>, <span className="text-white">80% for Commercial/Industrial</span>
+                <br /><span className="text-gray-500">Source: <a href="https://www.tgerc.telangana.gov.in/file_upload/uploads/Regulations/Final/tserc/2025/Final%20Solar%20Roof%20top%20Regulation%201%20of%202025%2015112025.pdf" target="_blank" rel="noreferrer" className="text-yellow-400 underline">TGERC Rooftop Solar Regulation No. 1 of 2025</a></span>
+              </li>
+              <li>
+                • <strong>PM Surya Ghar CFA:</strong> Max ₹78,000 for residential (₹30k/kW for first 2 kW + ₹18k for 3rd kW; commercial ₹0)
+                <br /><span className="text-gray-500">Source: MNRE Operational Guidelines Feb 2024</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Box B: Techno-Economic Modeling Assumptions */}
+          <div className="p-4 bg-gray-950/80 rounded-xl border border-gray-800 text-xs text-gray-300 space-y-2">
+            <h4 className="font-bold text-blue-400 uppercase tracking-wider text-xs flex items-center gap-1.5">
+              <span>⚙</span> Techno-Economic Modeling Assumptions
+            </h4>
+            <ul className="space-y-1.5 text-[11px] text-gray-300">
+              <li>
+                • <strong>Rooftop Specific Layout Area:</strong> 10.0 m² per 1 kWp panel array (Mono-PERC / TOPCon modules).
+              </li>
+              <li>
+                • <strong>Daytime Self-Consumption Scenario:</strong> {selfConsumptionScenario} ({selfConsumptionScenario === 'LOW' ? '35%' : selfConsumptionScenario === 'HIGH' ? '85%' : '60%'} on-site utilization).
+              </li>
+              <li>
+                • <strong>Module Degradation:</strong> 0.7% annual linear degradation after Year 1 (standard 25-yr performance warranty).
+              </li>
+              <li>
+                • <strong>Grid Tariff Escalation:</strong> 3.5% per annum projected electricity rate inflation.
+              </li>
+              <li>
+                • <strong>Operation & Maintenance (O&M):</strong> 1.2% of initial capex per year, escalating at 4.0% per annum.
+              </li>
+              <li>
+                • <strong>Inverter Replacement Reserve:</strong> 18% of initial capex allocated at Year 12.
+              </li>
+            </ul>
+          </div>
         </div>
+
+        {/* Legal Disclaimer Footer */}
+        <p className="text-[11px] text-gray-500 mt-4 pt-3 border-t border-gray-900 text-center">
+          Surya Sankalp is an AI-powered technical and financial feasibility simulator. Results are model projections and do not constitute legal contracts, guaranteed power generation, or financial guarantees. Interconnection approvals, net metering agreements, and subsidy disbursements are subject to DISCOM inspection and National Portal validation.
+        </p>
       </div>
 
       {/* Interactive Controls & Methodological Transparency (Phase 1) */}

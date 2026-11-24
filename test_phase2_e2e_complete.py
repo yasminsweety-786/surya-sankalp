@@ -117,7 +117,7 @@ payback = fin_res["metrics"]["simple_payback_years"]
 assert payback is not None and payback < 8.0, f"Unexpected payback period: {payback}"
 print(f"✓ 6D. Lifecycle Payback: {payback:.2f} years (Status: {fin_res['metrics']['payback_status']}, 25-Yr Net Savings: ₹{fin_res['metrics']['twenty_five_year_net_savings']:,.2f})")
 
-# Test 6B: Commercial Consumer (Verification of Subsidy Ineligibility)
+# Test 6E: Commercial Consumer (Verification of Subsidy Ineligibility & 80% Grid Cap)
 r_fin_comm = client.post("/api/financial_assessment", json={
     "estimation_id": estimation_id,
     "state_code": "TG",
@@ -129,9 +129,13 @@ r_fin_comm = client.post("/api/financial_assessment", json={
 })
 assert r_fin_comm.status_code == 200, f"Commercial financial assessment failed: {r_fin_comm.text}"
 fin_comm = r_fin_comm.json()
+# Commercial grid capacity cap under TGERC Reg 1 of 2025: max 80% of sanctioned load (10 kW * 80% = 8.0 kW)
+assert fin_comm["system_sizing"]["category_grid_limit_pct"] == 80.0
+assert fin_comm["system_sizing"]["recommended_capacity_kw"] <= 8.0, "Commercial capacity exceeded 80% grid cap!"
 assert fin_comm["capex_and_subsidy"]["cfa_subsidy_amount"] == 0.0, "Commercial must NOT receive PM Surya Ghar subsidy!"
 assert fin_comm["capex_and_subsidy"]["is_subsidy_eligible"] is False
-print(f"✓ 6E. Commercial Non-Subsidy Rule: Verified ₹0 subsidy for commercial category")
+assert fin_res["bill_simulation"]["export_settlement_rate"] == 2.57, "Export rate must be ₹2.57/kWh per TGERC 29-12-2025!"
+print(f"✓ 6E. Commercial Rules: Verified 80% grid cap ({fin_comm['system_sizing']['recommended_capacity_kw']} kW <= 8.0 kW) and ₹0 CFA subsidy")
 
 # 7. Frontend Static Serving Check
 r_front_index = client.get("/")

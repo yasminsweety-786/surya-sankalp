@@ -221,63 +221,66 @@ def init_db():
 def seed_regulatory_data(conn: sqlite3.Connection):
     cursor = conn.cursor()
 
-    # 1. Seed Telangana Tariffs (TGERC Retail Supply Tariff Order FY 2024-25 / FY 2025-26)
-    cursor.execute("SELECT COUNT(*) as cnt FROM discom_tariffs WHERE discom_code = 'TGSPDCL'")
-    if cursor.fetchone()["cnt"] == 0:
-        logger.info("Seeding verified Telangana TGERC / TGSPDCL tariff schedules...")
-        
-        # TGSPDCL Domestic LT-I
-        # Group A (0-100 units), Group B(i) (101-200), Group B(ii) (>200 telescopic)
-        energy_slabs_tg_domestic = [
-            {"tier": "LT-1(A)", "min_units": 0, "max_units": 50, "rate": 1.95},
-            {"tier": "LT-1(A)", "min_units": 51, "max_units": 100, "rate": 3.10},
-            {"tier": "LT-1(B)(i)", "min_units": 0, "max_units": 100, "rate": 3.40},
-            {"tier": "LT-1(B)(i)", "min_units": 101, "max_units": 200, "rate": 4.80},
-            {"tier": "LT-1(B)(ii)", "min_units": 0, "max_units": 200, "rate": 5.10},
-            {"tier": "LT-1(B)(ii)", "min_units": 201, "max_units": 300, "rate": 7.70},
-            {"tier": "LT-1(B)(ii)", "min_units": 301, "max_units": 400, "rate": 9.00},
-            {"tier": "LT-1(B)(ii)", "min_units": 401, "max_units": 800, "rate": 10.00},
-            {"tier": "LT-1(B)(ii)", "min_units": 801, "max_units": 999999, "rate": 11.00}
-        ]
-        
-        fixed_rules_tg_domestic = {
-            "group_a_monthly_fixed": 25.0,
-            "group_b1_monthly_fixed": 50.0,
-            "group_b2_per_kw_monthly": 10.0
-        }
+    # 1. Seed Telangana Tariffs (TGERC Retail Supply Tariff Order FY 2026-27, Effective 01-04-2026 to 31-03-2027)
+    # Clear prior outdated tariff rows for TGSPDCL to ensure clean transition
+    cursor.execute("DELETE FROM discom_tariffs WHERE discom_code = 'TGSPDCL'")
+    logger.info("Seeding verified Telangana TGERC / TGSPDCL FY 2026-27 tariff schedules...")
+    
+    # TGSPDCL Domestic LT-I (FY 2026-27: 401-800 units @ ₹9.50/kWh, >800 units @ ₹10.00/kWh)
+    energy_slabs_tg_domestic = [
+        {"tier": "LT-1(A)", "min_units": 0, "max_units": 50, "rate": 1.95},
+        {"tier": "LT-1(A)", "min_units": 51, "max_units": 100, "rate": 3.10},
+        {"tier": "LT-1(B)(i)", "min_units": 0, "max_units": 100, "rate": 3.40},
+        {"tier": "LT-1(B)(i)", "min_units": 101, "max_units": 200, "rate": 4.80},
+        {"tier": "LT-1(B)(ii)", "min_units": 0, "max_units": 200, "rate": 5.10},
+        {"tier": "LT-1(B)(ii)", "min_units": 201, "max_units": 300, "rate": 7.70},
+        {"tier": "LT-1(B)(ii)", "min_units": 301, "max_units": 400, "rate": 9.00},
+        {"tier": "LT-1(B)(ii)", "min_units": 401, "max_units": 800, "rate": 9.50},
+        {"tier": "LT-1(B)(ii)", "min_units": 801, "max_units": 999999, "rate": 10.00}
+    ]
+    
+    fixed_rules_tg_domestic = {
+        "group_a_monthly_fixed": 25.0,
+        "group_b1_monthly_fixed": 50.0,
+        "group_b2_per_kw_monthly": 10.0,
+        "single_phase_minimum": 25.0,
+        "three_phase_minimum": 50.0
+    }
 
-        cursor.execute("""
-            INSERT INTO discom_tariffs (
-                state_code, state_name, discom_code, discom_name, consumer_category,
-                tariff_order_ref, source_url, effective_from, version, billing_cycle,
-                fixed_charge_rules, energy_slabs, electricity_duty_per_kwh
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            "TG", "Telangana", "TGSPDCL", "Southern Power Distribution Company of Telangana Limited",
-            "residential_individual", "TGERC Retail Supply Tariff Order FY 2024-25 / FY 2025-26",
-            "https://www.tgsouthernpower.org", "2024-04-01", "1.0", "MONTHLY",
-            json.dumps(fixed_rules_tg_domestic), json.dumps(energy_slabs_tg_domestic), 0.06
-        ))
+    cursor.execute("""
+        INSERT INTO discom_tariffs (
+            state_code, state_name, discom_code, discom_name, consumer_category,
+            tariff_order_ref, source_url, effective_from, effective_to, version, billing_cycle,
+            fixed_charge_rules, energy_slabs, electricity_duty_per_kwh
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "TG", "Telangana", "TGSPDCL", "Southern Power Distribution Company of Telangana Limited",
+        "residential_individual", "TGERC Retail Supply Tariff Order FY 2026-27",
+        "https://tgsouthernpower.org/resources/PDF/Tariffs/69tarifffile.pdf", "2026-04-01", "2027-03-31",
+        "FY2026-27_V1", "MONTHLY",
+        json.dumps(fixed_rules_tg_domestic), json.dumps(energy_slabs_tg_domestic), 0.06
+    ))
 
-        # TGSPDCL Commercial LT-II(A) Non-Domestic
-        energy_slabs_tg_comm = [
-            {"tier": "LT-2(A)", "min_units": 0, "max_units": 50, "rate": 7.00},
-            {"tier": "LT-2(B)", "min_units": 51, "max_units": 999999, "rate": 11.50}
-        ]
-        fixed_rules_tg_comm = {"per_kw_monthly": 75.0}
+    # TGSPDCL Commercial LT-II(A) Non-Domestic
+    energy_slabs_tg_comm = [
+        {"tier": "LT-2(A)", "min_units": 0, "max_units": 50, "rate": 7.00},
+        {"tier": "LT-2(B)", "min_units": 51, "max_units": 999999, "rate": 11.50}
+    ]
+    fixed_rules_tg_comm = {"per_kw_monthly": 75.0}
 
-        cursor.execute("""
-            INSERT INTO discom_tariffs (
-                state_code, state_name, discom_code, discom_name, consumer_category,
-                tariff_order_ref, source_url, effective_from, version, billing_cycle,
-                fixed_charge_rules, energy_slabs, electricity_duty_per_kwh
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            "TG", "Telangana", "TGSPDCL", "Southern Power Distribution Company of Telangana Limited",
-            "commercial", "TGERC Retail Supply Tariff Order FY 2024-25",
-            "https://www.tgsouthernpower.org", "2024-04-01", "1.0", "MONTHLY",
-            json.dumps(fixed_rules_tg_comm), json.dumps(energy_slabs_tg_comm), 0.06
-        ))
+    cursor.execute("""
+        INSERT INTO discom_tariffs (
+            state_code, state_name, discom_code, discom_name, consumer_category,
+            tariff_order_ref, source_url, effective_from, effective_to, version, billing_cycle,
+            fixed_charge_rules, energy_slabs, electricity_duty_per_kwh
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "TG", "Telangana", "TGSPDCL", "Southern Power Distribution Company of Telangana Limited",
+        "commercial", "TGERC Retail Supply Tariff Order FY 2026-27",
+        "https://tgsouthernpower.org/resources/PDF/Tariffs/69tarifffile.pdf", "2026-04-01", "2027-03-31",
+        "FY2026-27_V1", "MONTHLY",
+        json.dumps(fixed_rules_tg_comm), json.dumps(energy_slabs_tg_comm), 0.06
+    ))
 
     # 2. Seed Official Subsidy Rules (PM Surya Ghar: Muft Bijli Yojana, Feb 2024)
     cursor.execute("SELECT COUNT(*) as cnt FROM subsidy_rules WHERE scheme_name = 'PM Surya Ghar: Muft Bijli Yojana'")
@@ -333,21 +336,62 @@ def seed_regulatory_data(conn: sqlite3.Connection):
             "MNRE OM No. 318/331/2023-GCRT (Feb 2024)", "2024-02-15", 1
         ))
 
-    # 3. Seed Metering & Settlement Regulations (TGERC Rooftop Solar Regulation No. 1 of 2025)
-    cursor.execute("SELECT COUNT(*) as cnt FROM metering_rules WHERE discom_code = 'TGSPDCL'")
-    if cursor.fetchone()["cnt"] == 0:
-        logger.info("Seeding TGERC Rooftop Solar PV Grid Interactive Systems Regulation No. 1 of 2025...")
-        min_bill_tg = {"monthly_minimum_units": 0, "maintain_customer_charge": True}
-        cursor.execute("""
-            INSERT INTO metering_rules (
-                state_code, discom_code, metering_type, regulation_order_ref,
-                capacity_cap_pct_sanctioned, settlement_frequency, export_settlement_rate,
-                minimum_bill_logic, is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            "TG", "TGSPDCL", "NET_METERING", "TGERC Rooftop Solar PV Grid Interactive Systems Regulation No. 1 of 2025",
-            100.0, "TWICE_YEARLY", 2.65, json.dumps(min_bill_tg), 1
-        ))
+    # 3. Seed Metering & Settlement Regulations (TGERC Regulation No. 1 of 2025 & Proceeding 29-12-2025 @ ₹2.57/kWh)
+    cursor.execute("DELETE FROM metering_rules WHERE discom_code = 'TGSPDCL'")
+    logger.info("Seeding TGERC Rooftop Solar Regulation No. 1 of 2025 & Proceeding dated 29-12-2025 (APPC ₹2.57/kWh)...")
+    min_bill_tg = {"monthly_minimum_units": 0, "maintain_customer_charge": True}
+    
+    # Residential & Government Net Metering (Max 100% of sanctioned load)
+    cursor.execute("""
+        INSERT INTO metering_rules (
+            state_code, discom_code, metering_type, regulation_order_ref,
+            capacity_cap_pct_sanctioned, settlement_frequency, export_settlement_rate,
+            minimum_bill_logic, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "TG", "TGSPDCL", "NET_METERING_RESIDENTIAL_GOVT",
+        "TGERC Rooftop Solar Regulation No. 1 of 2025 & Proceeding dated 29-12-2025 (₹2.57/kWh)",
+        100.0, "TWICE_YEARLY", 2.57, json.dumps(min_bill_tg), 1
+    ))
+
+    # Commercial & Industrial Net Metering (Max 80% of sanctioned load / contracted demand)
+    cursor.execute("""
+        INSERT INTO metering_rules (
+            state_code, discom_code, metering_type, regulation_order_ref,
+            capacity_cap_pct_sanctioned, settlement_frequency, export_settlement_rate,
+            minimum_bill_logic, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "TG", "TGSPDCL", "NET_METERING_COMMERCIAL_INDUSTRIAL",
+        "TGERC Rooftop Solar Regulation No. 1 of 2025 & Proceeding dated 29-12-2025 (₹2.57/kWh)",
+        80.0, "TWICE_YEARLY", 2.57, json.dumps(min_bill_tg), 1
+    ))
+
+    # Group Net Metering Rules
+    cursor.execute("""
+        INSERT INTO metering_rules (
+            state_code, discom_code, metering_type, regulation_order_ref,
+            capacity_cap_pct_sanctioned, settlement_frequency, export_settlement_rate,
+            minimum_bill_logic, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "TG", "TGSPDCL", "GROUP_NET_METERING",
+        "TGERC Regulation No. 1 of 2025 - Clause on Multi-Service Interconnection",
+        100.0, "ANNUAL", 2.57, json.dumps({"description": "Surplus solar adjusted against consumer's other DISCOM service connections"}), 1
+    ))
+
+    # Virtual Net Metering Rules
+    cursor.execute("""
+        INSERT INTO metering_rules (
+            state_code, discom_code, metering_type, regulation_order_ref,
+            capacity_cap_pct_sanctioned, settlement_frequency, export_settlement_rate,
+            minimum_bill_logic, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "TG", "TGSPDCL", "VIRTUAL_NET_METERING",
+        "TGERC Regulation No. 1 of 2025 - Clause on RWA/GHS Shared Arrays",
+        100.0, "ANNUAL", 2.57, json.dumps({"description": "Pro-rata allocation of generation among participating residential/common meters"}), 1
+    ))
 
     # 4. Seed MNRE Sourced Benchmark Capital Costs
     cursor.execute("SELECT COUNT(*) as cnt FROM benchmark_costs")
