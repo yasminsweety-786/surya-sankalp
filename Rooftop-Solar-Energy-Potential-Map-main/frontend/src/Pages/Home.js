@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { GoogleMap, LoadScript, Polygon } from "@react-google-maps/api";
 import p1 from "../assests/p1.png";
 import solar from "../assests/solar.png";
@@ -171,10 +171,10 @@ const Home = () => {
         <div>
           <img src={p1} width="700px" height="700px" className="p-20" />
           <div className="text-white text-3xl leading-10 border-l-8 space-x-5 font-mono ml-16 border-blue-600">
-            <p className="space-x-5">ANY QUERIES? VISIT US</p>
-            <a href="https://isro.hack2skill.com/2024/">
-              isro.hack2skill.com
-            </a>{" "}
+            <p className="space-x-5">ANY QUERIES?</p>
+            <Link to="/contact" className="hover:text-blue-400 underline">
+              Contact Surya Sankalp
+            </Link>{" "}
             <br />
           </div>
           <div className="flex space-x-6 mt-2 ml-16">

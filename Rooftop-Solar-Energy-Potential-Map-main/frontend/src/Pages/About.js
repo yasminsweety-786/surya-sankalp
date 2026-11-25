@@ -49,7 +49,7 @@ export default function About() {
         </div>
 
         <div className="border-t border-gray-800 pt-4 text-gray-500 text-sm text-center">
-          Surya Sankalp • Built for Hackathon Competition & Clean Energy Planning in India
+          Surya Sankalp • AI-Powered Rooftop Solar Potential & Clean Energy Planning in India
         </div>
       </div>
     </div>
