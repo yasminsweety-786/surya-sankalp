@@ -29,13 +29,18 @@ class SavePolygonRequest(BaseModel):
     firebase_uid: Optional[str] = None
     session_id: Optional[str] = None
     coordinates: str
-    imageUrl: str
+    imageUrl: Optional[str] = None
+    location_name: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     bounds: Optional[GeographicBounds] = None
 
 class SavePolygonResponse(BaseModel):
     message: str
     polygon_id: int
     imagePath: str
+    imageUrl: Optional[str] = None
+    location_name: Optional[str] = None
 
 # Detection Schemas
 class RooftopDetectionItem(BaseModel):
@@ -60,6 +65,8 @@ class PredictionResponse(BaseModel):
     source_image_resolution: List[int]
     uncertainty_status: str
     detections: List[RooftopDetectionItem]
+    original_image_url: Optional[str] = None
+    overlay_image_url: Optional[str] = None
 
 # Solar Estimation Schemas
 class SolarEstimateRequest(BaseModel):

@@ -107,6 +107,145 @@ def login(data: UserLoginRequest, db=Depends(get_db)):
     
     return {"message": "Login successful", "user_id": user["id"], "email": user["email"]}
 
+# ----------------- GEOSPATIAL SEARCH & GEOCODING -----------------
+CITY_PRESETS = [
+    {
+        "name": "Hyderabad (Gachibowli)",
+        "state": "Telangana",
+        "discom": "TGSPDCL",
+        "lat": 17.4436,
+        "lng": 78.3520,
+        "display_name": "Gachibowli, Hyderabad, Telangana, India"
+    },
+    {
+        "name": "Bengaluru (Indiranagar)",
+        "state": "Karnataka",
+        "discom": "BESCOM",
+        "lat": 12.9784,
+        "lng": 77.6408,
+        "display_name": "Indiranagar, Bengaluru, Karnataka, India"
+    },
+    {
+        "name": "Ahmedabad (Vastrapur)",
+        "state": "Gujarat",
+        "discom": "UGVCL",
+        "lat": 23.0365,
+        "lng": 72.5256,
+        "display_name": "Vastrapur, Ahmedabad, Gujarat, India"
+    },
+    {
+        "name": "New Delhi (Connaught Place)",
+        "state": "Delhi",
+        "discom": "BSES",
+        "lat": 28.6315,
+        "lng": 77.2167,
+        "display_name": "Connaught Place, New Delhi, Delhi, India"
+    },
+    {
+        "name": "Mumbai (BKC)",
+        "state": "Maharashtra",
+        "discom": "MSEDCL",
+        "lat": 19.0657,
+        "lng": 72.8687,
+        "display_name": "Bandra Kurla Complex, Mumbai, Maharashtra, India"
+    },
+    {
+        "name": "Kolkata (Salt Lake)",
+        "state": "West Bengal",
+        "discom": "CESC",
+        "lat": 22.5800,
+        "lng": 88.4300,
+        "display_name": "Salt Lake Sector V, Kolkata, West Bengal, India"
+    }
+]
+
+@app.get("/api/city_presets")
+def get_city_presets():
+    return {"presets": CITY_PRESETS}
+
+@app.get("/api/geocode")
+def geocode_location(query: str):
+    if not query or len(query.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Query string too short")
+    q = query.strip()
+    
+    # 1. Check presets
+    for p in CITY_PRESETS:
+        if q.lower() in p["name"].lower() or q.lower() in p["display_name"].lower():
+            delta = 0.0012
+            min_lat, max_lat = p["lat"] - delta, p["lat"] + delta
+            min_lng, max_lng = p["lng"] - delta, p["lng"] + delta
+            preview_url = (
+                f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?"
+                f"bbox={min_lng},{min_lat},{max_lng},{max_lat}&bboxSR=4326&imageSR=4326&size=640,640&format=png&f=image"
+            )
+            return {
+                "display_name": p["display_name"],
+                "lat": p["lat"],
+                "lng": p["lng"],
+                "bounds": {"minLat": min_lat, "maxLat": max_lat, "minLng": min_lng, "maxLng": max_lng},
+                "satellite_preview_url": preview_url,
+                "source": "PRESET"
+            }
+            
+    # 2. Live Nominatim resolution
+    try:
+        url = f"https://nominatim.openstreetmap.org/search?q={requests.utils.quote(q)}&format=json&limit=1&countrycodes=in"
+        headers = {"User-Agent": "SuryaSankalpSolarPlatform/1.0"}
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code == 200 and len(resp.json()) > 0:
+            item = resp.json()[0]
+            lat = float(item["lat"])
+            lng = float(item["lon"])
+            delta = 0.0012
+            min_lat, max_lat = lat - delta, lat + delta
+            min_lng, max_lng = lng - delta, lng + delta
+            preview_url = (
+                f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?"
+                f"bbox={min_lng},{min_lat},{max_lng},{max_lat}&bboxSR=4326&imageSR=4326&size=640,640&format=png&f=image"
+            )
+            return {
+                "display_name": item.get("display_name", q),
+                "lat": lat,
+                "lng": lng,
+                "bounds": {"minLat": min_lat, "maxLat": max_lat, "minLng": min_lng, "maxLng": max_lng},
+                "satellite_preview_url": preview_url,
+                "source": "NOMINATIM"
+            }
+    except Exception as e:
+        logger.warning(f"Geocoding request failed: {e}")
+        
+    # 3. Fallback to default Hyderabad preset
+    fallback = CITY_PRESETS[0]
+    delta = 0.0012
+    min_lat, max_lat = fallback["lat"] - delta, fallback["lat"] + delta
+    min_lng, max_lng = fallback["lng"] - delta, fallback["lng"] + delta
+    preview_url = (
+        f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?"
+        f"bbox={min_lng},{min_lat},{max_lng},{max_lat}&bboxSR=4326&imageSR=4326&size=640,640&format=png&f=image"
+    )
+    return {
+        "display_name": f"{q} (Regional Estimate: {fallback['name']})",
+        "lat": fallback["lat"],
+        "lng": fallback["lng"],
+        "bounds": {"minLat": min_lat, "maxLat": max_lat, "minLng": min_lng, "maxLng": max_lng},
+        "satellite_preview_url": preview_url,
+        "source": "FALLBACK"
+    }
+
+@app.get("/api/reverse_geocode")
+def reverse_geocode(lat: float, lng: float):
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=json"
+        headers = {"User-Agent": "SuryaSankalpSolarPlatform/1.0"}
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {"display_name": data.get("display_name", f"Coordinates: {lat:.4f}° N, {lng:.4f}° E")}
+    except Exception as e:
+        logger.warning(f"Reverse geocode failed: {e}")
+    return {"display_name": f"Location at {lat:.4f}° N, {lng:.4f}° E"}
+
 # ----------------- POLYGON & IMAGE SAVE ENDPOINT -----------------
 @app.post("/api/save_polygon", response_model=SavePolygonResponse)
 def save_polygon(data: SavePolygonRequest, db=Depends(get_db)):
@@ -116,12 +255,28 @@ def save_polygon(data: SavePolygonRequest, db=Depends(get_db)):
         filename = f"{user_identifier}_{timestamp_str}_polygon_image.png"
         saved_image_path = os.path.join(UPLOAD_DIR, filename)
 
+        # Determine satellite imagery source URL
+        img_url = data.imageUrl
+        if not img_url and data.bounds:
+            b = data.bounds
+            img_url = (
+                f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?"
+                f"bbox={b.minLng},{b.minLat},{b.maxLng},{b.maxLat}&bboxSR=4326&imageSR=4326&size=640,640&format=png&f=image"
+            )
+        elif not img_url and data.lat and data.lng:
+            delta = 0.0012
+            img_url = (
+                f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?"
+                f"bbox={data.lng - delta},{data.lat - delta},{data.lng + delta},{data.lat + delta}&bboxSR=4326&imageSR=4326&size=640,640&format=png&f=image"
+            )
+
         # Download remote satellite image or fall back to local sample
         downloaded = False
-        if data.imageUrl and (data.imageUrl.startswith("http://") or data.imageUrl.startswith("https://")):
+        if img_url and (img_url.startswith("http://") or img_url.startswith("https://")):
             try:
-                resp = requests.get(data.imageUrl, timeout=6)
-                if resp.status_code == 200:
+                headers = {"User-Agent": "SuryaSankalp/1.0"}
+                resp = requests.get(img_url, headers=headers, timeout=8)
+                if resp.status_code == 200 and len(resp.content) > 1000:
                     image = Image.open(BytesIO(resp.content))
                     if image.mode != "RGB":
                         image = image.convert("RGB")
@@ -138,23 +293,25 @@ def save_polygon(data: SavePolygonRequest, db=Depends(get_db)):
                 img = Image.open(sample_src).convert("RGB")
                 img.save(saved_image_path, "PNG")
             else:
-                blank = Image.new("RGB", (600, 400), color=(120, 120, 120))
+                blank = Image.new("RGB", (640, 640), color=(120, 120, 120))
                 blank.save(saved_image_path, "PNG")
 
         bounds_json = json.dumps(data.bounds.dict()) if data.bounds else None
         
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO polygons (user_id, firebase_uid, session_id, coordinates, image_path, image_url, source_bounds)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (data.user_id, data.firebase_uid, data.session_id, data.coordinates, saved_image_path, data.imageUrl, bounds_json))
+            INSERT INTO polygons (user_id, firebase_uid, session_id, coordinates, location_name, image_path, image_url, source_bounds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (data.user_id, data.firebase_uid, data.session_id, data.coordinates, data.location_name, saved_image_path, img_url or f"/uploads/{filename}", bounds_json))
         db.commit()
         polygon_id = cursor.lastrowid
 
         return {
             "message": "Polygon and image saved successfully",
             "polygon_id": polygon_id,
-            "imagePath": saved_image_path
+            "imagePath": saved_image_path,
+            "imageUrl": f"/uploads/{filename}",
+            "location_name": data.location_name
         }
     except Exception as e:
         logger.error(f"Error saving polygon: {e}")
@@ -233,6 +390,11 @@ def api_run_prediction(data: RunPredictionRequest, db=Depends(get_db)):
                     real_area_m2=d["real_area_m2"]
                 ))
 
+        orig_url = f"/uploads/{os.path.basename(image_path)}" if image_path else None
+        overlay_url = None
+        if seg_result.get("overlay_image_path") and os.path.exists(seg_result["overlay_image_path"]):
+            overlay_url = f"/uploads/{os.path.basename(seg_result['overlay_image_path'])}"
+
         return {
             "message": "Prediction completed successfully",
             "polygon_id": polygon["id"] if polygon else None,
@@ -242,7 +404,9 @@ def api_run_prediction(data: RunPredictionRequest, db=Depends(get_db)):
             "conversion_method": seg_result["conversion_method"],
             "source_image_resolution": seg_result["source_image_resolution"],
             "uncertainty_status": seg_result["uncertainty_status"],
-            "detections": detection_items
+            "detections": detection_items,
+            "original_image_url": orig_url,
+            "overlay_image_url": overlay_url
         }
     except Exception as e:
         logger.error(f"Error running prediction: {e}")

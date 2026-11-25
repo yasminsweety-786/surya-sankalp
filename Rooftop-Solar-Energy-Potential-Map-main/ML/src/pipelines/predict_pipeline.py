@@ -172,6 +172,30 @@ def run_rooftop_segmentation(
     if total_area_m2 is not None:
         total_area_m2 = round(total_area_m2, 2)
         
+    # Generate and save visual segmentation overlay image
+    overlay_path = None
+    try:
+        base_name, _ = os.path.splitext(image_path)
+        overlay_path = f"{base_name}_overlay.png"
+        overlay_bgr = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+        mask_canvas = overlay_bgr.copy()
+        
+        for idx, d in enumerate(detections):
+            pts = np.array(d["polygon_points"], dtype=np.int32)
+            if len(pts) >= 3:
+                color_fill = (0, 165, 255) if idx % 2 == 0 else (255, 180, 0)
+                cv2.fillPoly(mask_canvas, [pts], color_fill)
+                cv2.polylines(overlay_bgr, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
+                cx = int(np.mean(pts[:, 0]))
+                cy = int(np.mean(pts[:, 1]))
+                area_txt = f"#{idx+1}: {d['real_area_m2']} m2" if d.get("real_area_m2") else f"#{idx+1}"
+                cv2.putText(overlay_bgr, area_txt, (max(10, cx - 35), max(20, cy)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+                
+        cv2.addWeighted(mask_canvas, 0.40, overlay_bgr, 0.60, 0, overlay_bgr)
+        cv2.imwrite(overlay_path, overlay_bgr)
+    except Exception as overlay_err:
+        logger.warning(f"Failed to generate visual overlay image: {overlay_err}")
+
     return {
         "detected_count": len(detections),
         "total_rooftop_area_m2": total_area_m2,
@@ -179,5 +203,6 @@ def run_rooftop_segmentation(
         "conversion_method": conversion_method,
         "source_image_resolution": [width, height],
         "uncertainty_status": uncertainty_status,
-        "detections": detections
+        "detections": detections,
+        "overlay_image_path": overlay_path
     }

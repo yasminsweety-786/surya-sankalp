@@ -1,77 +1,53 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import logo from '../assests/logo.png';
-import { FaLinkedin, FaInstagram, FaGithub } from 'react-icons/fa';
 
 function Footer() {
   return (
-    <div>
-      <div className='border-t-2 border-gray-800 p-5 mb-12 flex justify-around items-center mt-6 flex-wrap gap-6'>
+    <footer className="bg-gray-950 border-t border-gray-800 text-gray-400 font-sans mt-16">
+      <div className="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
         <div>
-          <img src={logo} width="200px" height="200px" alt="Surya Sankalp Logo" />
+          <img src={logo} width="160px" height="160px" alt="Surya Sankalp Logo" className="mb-3" />
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Surya Sankalp: AI-Powered Rooftop Solar Potential, Financial Feasibility & Urban Solar Planning Platform for India.
+          </p>
         </div>
 
         <div>
-          <h2 className='text-white font-bold text-2xl mb-2'>Platform</h2>
-          <ul className='text-gray-300 leading-10'>
-            <li><Link to="/" className="hover:text-blue-400">Rooftop Selection</Link></li>
-            <li><Link to="/dashboard" className="hover:text-blue-400">Solar Feasibility Dashboard</Link></li>
-            <li><Link to="/about" className="hover:text-blue-400">Architecture & Vision</Link></li>
+          <h3 className="text-white font-bold text-sm mb-3 font-mono">Platform</h3>
+          <ul className="space-y-2 text-xs">
+            <li><Link to="/" className="hover:text-yellow-400 transition">Rooftop Selection & Map</Link></li>
+            <li><Link to="/dashboard" className="hover:text-yellow-400 transition">Solar Feasibility Dashboard</Link></li>
+            <li><Link to="/about" className="hover:text-yellow-400 transition">Architecture & Vision</Link></li>
           </ul>
         </div>
 
         <div>
-          <h2 className='text-white font-bold text-2xl mb-2'>Policy & Tariff</h2>
-          <ul className='text-gray-300 leading-10'>
-            <li>PM Surya Ghar CFA</li>
-            <li>TGSPDCL FY 2026-27 Slabs</li>
-            <li>TGERC Solar Net Metering</li>
+          <h3 className="text-white font-bold text-sm mb-3 font-mono">Policy & Tariffs</h3>
+          <ul className="space-y-2 text-xs">
+            <li className="text-gray-300">PM Surya Ghar: Muft Bijli Yojana CFA</li>
+            <li className="text-gray-300">TGSPDCL FY 2026-27 Domestic Slabs</li>
+            <li className="text-gray-300">TGERC Rooftop Regulation No. 1 of 2025</li>
+            <li className="text-gray-300">APPC Export Settlement at ₹2.57/kWh</li>
           </ul>
         </div>
 
         <div>
-          <h2 className='text-white font-bold text-2xl mb-2'>Contact</h2>
-          <ul className='text-gray-300 leading-10'>
-            <li><Link to="/contact" className="hover:text-blue-400">Contact Team</Link></li>
-            <li><Link to="/about" className="hover:text-blue-400">FAQ & Documentation</Link></li>
+          <h3 className="text-white font-bold text-sm mb-3 font-mono">Contact & Queries</h3>
+          <ul className="space-y-2 text-xs">
+            <li><Link to="/contact" className="hover:text-yellow-400 transition">Contact Project Team</Link></li>
+            <li><Link to="/about" className="hover:text-yellow-400 transition">Methodology & Disclosures</Link></li>
+            <li className="text-gray-400 pt-2">
+              National Portal: <a href="https://pmsuryaghar.gov.in" target="_blank" rel="noopener noreferrer" className="text-yellow-400 hover:underline">pmsuryaghar.gov.in</a>
+            </li>
           </ul>
         </div>
       </div>
 
-      <div className='flex flex-col items-center p-8'>
-        <h2 className='text-white text-2xl mb-4'>Follow Us</h2>
-        <div className="flex space-x-4 mt-2">
-          <a
-            href="https://www.linkedin.com/in/yash-pandey"
-            className="text-blue-500 hover:text-blue-700 text-2xl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FaLinkedin />
-          </a>
-          <a
-            href="https://www.instagram.com/shibu___16"
-            className="text-pink-500 hover:text-pink-700 text-2xl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FaInstagram />
-          </a>
-          <a
-            href="https://github.com/Yash16p"
-            className="text-gray-500 hover:text-gray-700 text-2xl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FaGithub />
-          </a>
-        </div>
+      <div className="border-t border-gray-900 py-4 text-center text-xs text-gray-400">
+        <p>© 2026 Surya Sankalp. All Rights Reserved. Built for Clean Renewable Energy Adoption in India.</p>
       </div>
-
-      <div className='flex justify-center mt-4'>
-        <p className='font-mono text-gray-400 mb-5'>© 2026 Surya Sankalp. All Rights Reserved.</p>
-      </div>
-    </div>
+    </footer>
   );
 }
 

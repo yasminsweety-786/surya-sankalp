@@ -68,6 +68,7 @@ def init_db():
         firebase_uid TEXT,
         session_id TEXT,
         coordinates TEXT NOT NULL,
+        location_name TEXT,
         image_path TEXT,
         image_url TEXT,
         source_bounds TEXT,
@@ -75,6 +76,12 @@ def init_db():
         FOREIGN KEY (user_id) REFERENCES users (id)
     );
     """)
+    # Migration safeguard for existing database files
+    try:
+        cursor.execute("ALTER TABLE polygons ADD COLUMN location_name TEXT;")
+        conn.commit()
+    except Exception:
+        pass
 
     # 3. Rooftop detections table (stores true polygon contours & area)
     cursor.execute("""
