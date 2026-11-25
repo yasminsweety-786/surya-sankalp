@@ -36,6 +36,8 @@ The model analyses the input image and generates segmentation masks representing
 The original aerial or satellite image used as input for rooftop analysis.
 
 ![Original Rooftop Image](images/original-rooftop.png)
+![Uploading image.png…]()
+
 
 ### YOLOv8 Rooftop Segmentation
 
