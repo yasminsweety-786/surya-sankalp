@@ -1,4 +1,4 @@
-<img width="655" height="341" alt="image" src="https://github.com/user-attachments/assets/55b5b9e0-2ebb-4254-b7f4-25eafec088f9" /># ☀️ Surya Sankalp
+# ☀️ Surya Sankalp
 ### Every Rooftop. A Brighter Tomorrow.
 
 **AI-Powered Rooftop Solar Potential Assessment, Financial Feasibility & Urban Solar Planning Platform**
