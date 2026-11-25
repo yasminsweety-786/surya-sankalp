@@ -2,20 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-
 body {
   background-image: url('./assests/solar-sys.gif');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   background-attachment: fixed;
+  background-color: #030712;
   margin: 0;
   padding: 0;
   font-family: sans-serif;
+  color: #ffffff;
+}
+
+/* Accessibility: Respect users who prefer reduced motion by falling back to high-resolution static background */
+@media (prefers-reduced-motion: reduce) {
+  body {
+    background-image: url('./assests/back.png');
+  }
 }
 
 #root {
-  height: 100%;
+  min-height: 100vh;
 }
+
 
 

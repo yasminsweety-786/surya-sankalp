@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -35,7 +35,7 @@ function MapViewUpdater({ center }) {
   const map = useMapEvents({});
   useEffect(() => {
     if (center && map) {
-      map.setView([center.lat, center.lng], 17);
+      map.setView([center.lat, center.lng], 18);
     }
   }, [center, map]);
   return null;
@@ -58,14 +58,15 @@ const Home = () => {
   const [geoStatus, setGeoStatus] = useState("");
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewError, setPreviewError] = useState(false);
+  const [mapMode, setMapMode] = useState("hybrid"); // 'hybrid' | 'satellite' | 'street'
 
-  // Derive static satellite preview image URL (Esri World Imagery Export API)
+  // Derive static high-definition satellite preview image URL (Esri World Imagery Export API)
   const delta = 0.0012;
   const minLat = selectedLocation.lat - delta;
   const maxLat = selectedLocation.lat + delta;
   const minLng = selectedLocation.lng - delta;
   const maxLng = selectedLocation.lng + delta;
-  const satellitePreviewUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${minLng},${minLat},${maxLng},${maxLat}&bboxSR=4326&imageSR=4326&size=640,640&format=png&f=image`;
+  const satellitePreviewUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${minLng},${minLat},${maxLng},${maxLat}&bboxSR=4326&imageSR=4326&size=800,800&format=png&f=image`;
 
   // Search location handler
   const handleSearch = async (e) => {
@@ -202,11 +203,13 @@ const Home = () => {
           long1: selectedLocation.lng,
           mapImageUrl: predData.original_image_url || saveRes.data.imageUrl || satellitePreviewUrl,
           overlayImageUrl: predData.overlay_image_url,
+          processedImageUrl: predData.processed_image_url,
           detectedAreaM2: predData.total_rooftop_area_m2,
           detectedCount: predData.detected_count,
           conversionMethod: predData.conversion_method,
           uncertaintyStatus: predData.uncertainty_status,
           detections: predData.detections,
+          rejectedDetections: predData.rejected_detections || [],
         },
       });
     } catch (error) {
@@ -220,9 +223,9 @@ const Home = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white font-sans">
+    <div className="min-h-screen text-white font-sans">
       {/* 1. Hero Section */}
-      <section className="border-b border-gray-800 bg-gradient-to-b from-gray-900 to-gray-950 py-12 px-4 sm:px-6 lg:px-8">
+      <section className="border-b border-gray-800/80 bg-gradient-to-b from-gray-900/80 to-gray-950/70 backdrop-blur-sm py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 mb-4">
@@ -258,7 +261,7 @@ const Home = () => {
       </section>
 
       {/* 2. Main Workflow: Location Selection & Preview */}
-      <main className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8 space-y-8">
+      <main id="analyze" className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8 space-y-8">
         <div className="text-center max-w-3xl mx-auto">
           <h2 className="text-3xl font-bold font-mono text-white mb-2">
             1. Select Your Rooftop Location
@@ -269,7 +272,7 @@ const Home = () => {
         </div>
 
         {/* Search Controls & Presets */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl space-y-4">
+        <div className="bg-gray-900/85 backdrop-blur-md border border-gray-800 rounded-xl p-6 shadow-xl space-y-4">
           <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
@@ -332,45 +335,103 @@ const Home = () => {
         {/* 3. Interactive Satellite Map & Rooftop Preview Side-by-Side */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Interactive Map */}
-          <div className="lg:col-span-7 bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+          <div className="lg:col-span-7 bg-gray-900/85 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-gray-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <span>🗺️</span> Interactive Satellite Map
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">
+                    HD Mode (Zoom 18-20)
+                  </span>
                 </h3>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-400 mt-0.5">
                   Click directly on any building to center the satellite target pin.
                 </p>
               </div>
-              <span className="text-xs px-2 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">
-                Esri World Imagery
-              </span>
+
+              {/* HD Map Mode Switcher */}
+              <div className="flex items-center gap-1 bg-gray-950/80 p-1 rounded-lg border border-gray-700/80 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setMapMode('hybrid')}
+                  className={`px-2.5 py-1 rounded font-medium transition ${
+                    mapMode === 'hybrid'
+                      ? 'bg-yellow-500 text-gray-950 font-bold shadow'
+                      : 'text-gray-300 hover:text-white'
+                  }`}
+                >
+                  🗺️ HD Hybrid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapMode('satellite')}
+                  className={`px-2.5 py-1 rounded font-medium transition ${
+                    mapMode === 'satellite'
+                      ? 'bg-yellow-500 text-gray-950 font-bold shadow'
+                      : 'text-gray-300 hover:text-white'
+                  }`}
+                >
+                  🛰️ Pure Satellite
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapMode('street')}
+                  className={`px-2.5 py-1 rounded font-medium transition ${
+                    mapMode === 'street'
+                      ? 'bg-yellow-500 text-gray-950 font-bold shadow'
+                      : 'text-gray-300 hover:text-white'
+                  }`}
+                >
+                  🏙️ Street Map
+                </button>
+              </div>
             </div>
 
-            <div style={{ height: "420px", width: "100%" }}>
+            <div style={{ height: "480px", width: "100%" }} className="relative bg-gray-950">
               <MapContainer
                 center={[selectedLocation.lat, selectedLocation.lng]}
-                zoom={17}
+                zoom={18}
+                maxZoom={20}
                 scrollWheelZoom={true}
                 style={{ height: "100%", width: "100%" }}
               >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.esri.com/">Esri</a>, Earthstar Geographics'
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                  maxZoom={19}
-                />
+                {mapMode !== 'street' && (
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.esri.com/">Esri</a>, Earthstar Geographics'
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    maxZoom={20}
+                    maxNativeZoom={19}
+                  />
+                )}
+                {mapMode === 'hybrid' && (
+                  <TileLayer
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                    maxZoom={20}
+                    maxNativeZoom={19}
+                    opacity={0.9}
+                  />
+                )}
+                {mapMode === 'street' && (
+                  <TileLayer
+                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                    maxZoom={20}
+                    subdomains="abcd"
+                  />
+                )}
                 <Marker position={[selectedLocation.lat, selectedLocation.lng]} />
                 <MapClickHandler onLocationSelect={handleMapClick} />
                 <MapViewUpdater center={selectedLocation} />
               </MapContainer>
             </div>
-            <div className="p-3 bg-gray-900/90 text-xs text-gray-400 border-t border-gray-800 text-center">
-              💡 Tip: Zoom in to your building and click on the rooftop to update coordinates.
+            <div className="p-3 bg-gray-900/90 text-xs text-gray-400 border-t border-gray-800 flex justify-between items-center">
+              <span>💡 Tip: Zoom in to your building and click on the rooftop to update coordinates.</span>
+              <span className="text-gray-500 font-mono hidden sm:inline">Esri World Imagery / Earthstar</span>
             </div>
           </div>
 
           {/* Location & Rooftop Image Preview Card */}
-          <div className="lg:col-span-5 bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-2xl flex flex-col justify-between space-y-6">
+          <div className="lg:col-span-5 bg-gray-900/85 backdrop-blur-md border border-gray-800 rounded-xl p-6 shadow-2xl flex flex-col justify-between space-y-6">
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -400,7 +461,7 @@ const Home = () => {
                   alt="Satellite rooftop preview"
                   onLoad={() => setPreviewLoaded(true)}
                   onError={() => setPreviewError(true)}
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${
+                  className={`w-full h-full object-cover transition-opacity duration-300 contrast-[1.04] brightness-[1.02] ${
                     previewLoaded ? "opacity-100" : "opacity-40"
                   }`}
                 />
@@ -415,11 +476,12 @@ const Home = () => {
                 </div>
 
                 {/* Status Badges */}
-                <div className="absolute top-2 left-2 bg-black/70 backdrop-blur text-xs px-2 py-1 rounded border border-gray-700 text-gray-300">
-                  🛰️ Aerial Imagery
+                <div className="absolute top-2 left-2 bg-black/75 backdrop-blur text-xs px-2.5 py-1 rounded-md border border-emerald-500/40 text-emerald-300 font-medium flex items-center gap-1.5 shadow">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  🛰️ HD Satellite 800×800
                 </div>
-                <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur text-xs px-2 py-1 rounded border border-gray-700 text-yellow-400">
-                  Target Rooftop Center
+                <div className="absolute bottom-2 right-2 bg-black/75 backdrop-blur text-xs px-2.5 py-1 rounded-md border border-gray-700 text-yellow-400 shadow">
+                  🎯 Target Rooftop Center
                 </div>
 
                 {previewError && (

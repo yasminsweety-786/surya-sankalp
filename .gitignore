@@ -1,0 +1,5 @@
+
+# Ignore generated uploads
+Rooftop-Solar-Energy-Potential-Map-main/backend/uploads/
+Rooftop-Solar-Energy-Potential-Map-main/frontend/public/uploads/
+__pycache__/

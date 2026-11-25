@@ -1,0 +1,17 @@
+# Surya Sankalp Backend Dependencies
+# Python 3.10+ / 3.13 Compatible
+
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.1.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+shapely>=2.0.0
+requests>=2.31.0
+numpy>=1.24.0
+
+# Optional PostgreSQL database driver (if using DATABASE_URL instead of default SQLite)
+# psycopg2-binary>=2.9.9

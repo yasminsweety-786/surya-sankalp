@@ -1,146 +1,149 @@
+# Surya Sankalp
+### *Every Rooftop. A Brighter Tomorrow.*
 
-# Rooftop-Solar-Energy-Potential-Map
-
-The Rooftop Solar Energy Potential Map project is a comprehensive initiative aimed at identifying and visualizing the potential for solar energy generation on rooftops within a specific geographic area.
-
- By leveraging advanced geospatial analysis and data-driven modeling, the project creates automatic solar energy consumption for the specific geographical area helping government decide where to plant solar planels 
-
- 
-
-
-## Screenshots
-
-![App Screenshot](https://iili.io/dR03Ux4.jpg)
-![App Screenshot](https://iili.io/dR0Fmps.jpg)
-![App Screenshot](https://iili.io/dR0KgFS.jpg)
-
-## Project Overview
-
-This project leverages advanced machine learning models and geospatial analysis to address two key objectives:
-1. **Building Footprint Extraction**: Detect and delineate building footprints from satellite images using a sophisticated ResNet50-U-Net model.
-2. **Solar Energy Estimation**: Calculate potential solar energy generation based on solar radiance data and user-defined parameters.
-
-## Files and Notebooks
-
-### 1. `README.md`
-This document provides an overview of the repository, explains the purpose of each file, and outlines setup and usage instructions.
-
-### 2. `area_finder.ipynb`
-**Purpose**: This Jupyter Notebook calculates the real-world area of buildings from model predictions.
-- **Process**: 
-  - Extract geographic coordinates for the building’s bounding box.
-  - Calculate the pixel-to-world conversion factor based on geographic coordinates and image resolution.
-  - Use the conversion factor to determine the area of each building in square meters.
-### Building Area Calculation Formula
-
-To calculate the area of each building detected by the model, use the following formula:
-
-##### Building Area (m²) = (Pixel Area (m²) / Conversion Factor) × Number of Pixels
-
-#### Explanation:
-- **Pixel Area (m²)**: The area represented by a single pixel in square meters.
-- **Conversion Factor**: The ratio of real-world dimensions (latitude and longitude) to pixel dimensions, determined using geographic coordinates and image resolution.
-- **Number of Pixels**: The total count of pixels within the building's footprint as predicted by the model.
-
-### Steps for Calculation:
-1. **Extract Geographic Coordinates**: Use the coordinates provided by the user to define the area covered by the image.
-2. **Determine Conversion Factor**: Calculate the conversion factor by relating real-world distances (latitude and longitude) to pixel dimensions in the image.
-3. **Calculate Building Area**:
-   - Find the pixel area for the building using the conversion factor.
-   - Multiply the pixel area by the number of pixels that represent the building footprint to get the total building area in square meters.
-
-This method ensures accurate area calculations by integrating geographic and pixel-based information, providing a precise measurement of each building's footprint in real-world units.
-
-
-
-### 3. `create_mask.ipynb`
-**Purpose**: Generate binary masks from satellite images for model training.
-- **Process**: Creates masks highlighting building footprints, which are then used to train the model.
-- **Output**: Binary masks where buildings are marked in white on a black background.
-
-### 4. `model_architecture_resnet.json`
-**Purpose**: Contains the JSON file detailing the architecture of the ResNet50-U-Net model.
-- **Details**: Provides specifications of layers, activations, and connections used in the model.
-
-
-### 5. `model_resnet.ipynb`
-**Purpose**: Train the ResNet50-U-Net model for building footprint extraction.
-- **Process**: Implements and trains the model on the dataset, evaluates its performance, and saves the trained model.
-- **Model**: Combines ResNet50 as the encoder with a U-Net decoder to handle segmentation tasks.
-
-![App Screenshot](https://iili.io/dR0B4SI.png)
-
-### 6. `prediction.ipynb`
-**Purpose**: Generate predictions using the trained ResNet50-U-Net model.
-- **Process**: Uses the trained model to predict building footprints on new satellite images, applies post-processing to refine results.
-
-### 7. `split_folders.ipynb`
-**Purpose**: Organize and split the dataset into training and validation sets.
-- **Process**: Ensures that data is properly divided for model training and evaluation, facilitating better model performance and validation.
-
-## Setup Instructions
-
-1. **Clone the Repository**:
-    ```bash
-    git clone <repository-url>
-    cd <repository-folder>
-    ```
-
-2. **Install Dependencies**:
-    Ensure Python 3.x is installed. Use the following command to install required libraries:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3. **Jupyter Notebooks**:
-    Launch Jupyter Notebook:
-    ```bash
-    jupyter notebook
-    ```
-    Open and execute the notebooks in the following sequence for a complete workflow:
-    - `split_folders.ipynb`
-    - `create_mask.ipynb`
-    - `automatic_tif_converter.ipynb`
-    - `model_resnet.ipynb`
-    - `prediction.ipynb`
-    - `area_finder.ipynb`
-
-4. **Make Changes to Data2 folder as shown**:
-   
-    ![App Screenshot](https://iili.io/dR0aoCB.png)
-    
-
-## Model Overview
-
-### ResNet50-U-Net Architecture
-- **Encoder**: ResNet50 extracts hierarchical features from input images.
-- **Decoder**: U-Net uses these features to reconstruct segmentation masks, capturing detailed building footprints.
-
-### Performance
-- **Validation Accuracy**: 95.21%
-- **Mean IoU Before Post-Processing**: 0.85
-- **Mean IoU After Post-Processing**: 0.92
-
-## Area Calculation
-
-1. **Extract Coordinates**: From user inputs, determine the geographic bounds of the image area.
-2. **Calculate Conversion Factor**: Convert pixel dimensions to real-world measurements using the geographic bounds.
-3. **Compute Area**: Multiply the number of pixels detected in each building by the conversion factor to obtain the real-world area.
-
-## Usage
-
-- **Data Preparation**: Use `split_folders.ipynb` to organize your dataset. Generate masks using `create_mask.ipynb`.
-- **Model Training**: Train the ResNet50-U-Net model with `model_resnet.ipynb`.
-- **Prediction and Post-Processing**: Predict building footprints and refine results using `prediction.ipynb`. Calculate building areas with `area_finder.ipynb`.
-
-## Notes
-
-- Ensure that file paths and directories are correctly configured in the notebooks.
-- Review `model_architecture_resnet.json` for detailed model architecture information.
-
-For issues or contributions, please open an issue or pull request on the repository.
+Surya Sankalp is an AI-powered rooftop solar feasibility and financial assessment platform. By combining computer vision segmentation of high-resolution satellite imagery, meteorological climatology, and state electricity regulatory frameworks, Surya Sankalp enables residential, commercial, and institutional property owners to accurately evaluate rooftop solar potential and financial returns.
 
 ---
 
+## ⚡ Key Capabilities
 
+1. **Satellite Rooftop Segmentation**: Employs an optimized YOLOv8 instance segmentation model to isolate building contours and compute physical rooftop areas ($m^2$ and sq.ft) with geodesic coordinate calibration.
+2. **Automated Visual Solar Panel Detection**: Scans detected rooftop surfaces using spectral reflectance and geometric filtering to detect existing photovoltaic installations (`SOLAR_PANELS_DETECTED`, `NO_VISIBLE_PANELS_DETECTED`, `UNABLE_TO_DETERMINE`), rendered in vibrant cyan on overlay images.
+3. **Sequential Rooftop Numbering & Interactive Synchronization**: Assigns persistent, 1-based segment IDs (`#1`, `#2`, `#3`, ...) matching satellite visual badges and data tables synchronously.
+4. **Transparent Multi-Constraint Sizing Engine**: Strictly enforces solar potential hierarchy:
+   $$\text{Total Rooftop Area} \to \text{Setback Safety Buffer (30\%)} \to \text{Deduction of Existing Panels} \to \text{Remaining Usable Area} \to \text{DISCOM Grid Cap} \to \text{Consumption Matching}$$
+   *Zero Double-Counting Rule*: Existing capacity is never counted as new recommended installation; $0\text{ m}^2$ remaining usable space strictly yields $0\text{ kWp}$ new expansion.
+5. **Meteorological Solar Estimation**: Connects to the NASA Langley Research Center POWER climatology project to obtain multi-year monthly Global Horizontal Irradiance (GHI) for any global latitude/longitude.
+6. **Regulatory Financial Engine**: Integrates Central Financial Assistance (CFA) under PM Surya Ghar: Muft Bijli Yojana, DISCOM retail tariff schedules (TGSPDCL FY 2026-27), and net metering export settlement rates (TGERC Regulation No. 1 of 2025 @ ₹2.57/kWh).
 
+---
+
+## 🏗️ Architecture & Technology Stack
+
+```
+Surya Sankalp Platform
+├── Frontend (React 18 SPA)
+│   ├── Interactive Satellite Map & ROI Boundary Selection (Leaflet / ESRI ArcGIS World Imagery)
+│   ├── Side-by-Side Satellite View & Detected Rooftop Boundaries (SVG Overlay Layer)
+│   ├── Segmented Rooftops Identification Table & Selected Rooftop Feasibility Panel
+│   ├── Consumer Load, Tariff, and Financial Simulation Controls
+│   ├── 12-Month Generation vs. Consumption Chart (Chart.js)
+│   └── 25-Year Lifecycle Cash Flow & Methodology Disclosures
+│
+├── Backend (FastAPI / Python 3.13)
+│   ├── Geocoding & City Preset Service (Nominatim OSM + Pre-calibrated GeoJSON)
+│   ├── Satellite Tile Export & Geodesic Scaling (WGS-84 Haversine / Equirectangular Projection)
+│   ├── SQLite Storage (`backend/solar.db`) with pre-seeded DISCOM tariff orders
+│   └── Financial Advisor & Sizing Service (`backend/services/financial_advisor.py`)
+│
+└── Machine Learning & Computer Vision (`ML/`)
+    ├── YOLOv8 Instance Segmentation (`ML/models/best.pt`)
+    ├── Polygon Contour Smoothing & Area Calculation via Green's Theorem
+    ├── Non-Maximum Suppression (IoU deduplication)
+    └── Automated Visual PV Array Texture & Reflectance Scanner
+```
+
+---
+
+## 📊 Computer Vision Pipeline & Scope Transparency
+
+* **Model Training Scope**: The primary segmentation model (`ML/models/best.pt`) is a single-class instance segmentation model trained on aerial/satellite imagery to detect building envelopes (`names: {0: 'Building'}`).
+* **Automated Solar Panel Detection**: Because the baseline model predicts building boundaries, Surya Sankalp executes a secondary computer vision pipeline on each detected rooftop ROI:
+  - Mask boundary extraction and perspective normalization
+  - HSV color-space thresholding isolating monocrystalline charcoal and polycrystalline deep-blue silicon reflectances
+  - Morphological closing and contour rectangularity filtering
+  - Transparent user refinement toggle to adjust or override panel status without blocking the analysis flow.
+
+---
+
+## 🚀 Quickstart & Installation
+
+### Prerequisites
+- Python 3.10+ (tested on Python 3.12 and 3.13)
+- Node.js 18+ and npm
+- Git
+
+### 1. Backend Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/surya-sankalp.git
+cd surya-sankalp
+
+# Create and activate a virtual environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the FastAPI server
+uvicorn backend.main:app --host 127.0.0.1 --port 5000 --reload
+```
+
+The backend API will be available at `http://127.0.0.1:5000`. API documentation is available at `http://127.0.0.1:5000/docs`.
+
+### 2. Frontend Setup
+
+```bash
+cd frontend
+
+# Install npm packages
+npm install
+
+# Option A: Run development server
+npm start
+
+# Option B: Build optimized production bundle
+npm run build
+```
+
+When built, FastAPI automatically serves the optimized production React build from `frontend/build` at `http://127.0.0.1:5000/`.
+
+---
+
+## 🧪 Automated Testing
+
+Surya Sankalp includes comprehensive automated regression suites verifying rooftop segmentation, existing solar deductions, and financial calculations:
+
+```bash
+# Run all test suites
+python -m pytest tests/test_existing_solar_verification.py tests/test_ui_and_segmentation.py -v
+```
+
+---
+
+## 📡 API Reference
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/health` | `GET` | Health check and database connection status |
+| `/api/geocode?q={query}` | `GET` | Nominatim forward geocoding with bounding box |
+| `/api/city_presets` | `GET` | Pre-calibrated urban rooftop locations |
+| `/api/save_polygon` | `POST` | Saves satellite polygon ROI and prepares geocoded image |
+| `/api/run_prediction` | `POST` | Executes YOLOv8 segmentation and automated PV panel detection |
+| `/api/estimate` | `POST` | Fetches NASA POWER insolation and computes energy yield |
+| `/api/tariffs` | `GET` | Retrieves DISCOM tariff schedules and statutory regulations |
+| `/api/financial_assessment` | `POST` | Executes multi-constraint sizing, subsidy calculation, and net metering bill simulation |
+
+---
+
+## 📜 Regulatory References & Disclosures
+
+* **PM Surya Ghar: Muft Bijli Yojana**: Central Financial Assistance (CFA) under Ministry of New and Renewable Energy (MNRE) guidelines:
+  - Up to 2 kWp: ₹33,000 per kWp (₹66,000 max)
+  - 3 kWp and above: ₹78,000 fixed
+* **TGERC Rooftop Solar Regulation No. 1 of 2025**:
+  - Residential/Govt: Up to 100% of sanctioned load
+  - Commercial/Industrial: Up to 80% of sanctioned load
+  - Export settlement credit: ₹2.57/kWh (Proceeding dated 29-12-2025)
+* **NASA POWER Climatology**: Global Horizontal Irradiance (GHI) multi-year daily averages.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

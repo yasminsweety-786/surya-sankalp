@@ -13,7 +13,10 @@ def size_solar_system(
     usable_area_m2: float,
     sanctioned_load_kw: float,
     annual_consumption_kwh: Optional[float] = None,
-    consumer_category: str = "residential_individual"
+    consumer_category: str = "residential_individual",
+    existing_solar_capacity_kw: float = 0.0,
+    existing_solar_status: str = "NO",
+    existing_occupied_area_m2: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Sizes the rooftop solar system using a multi-constraint bounding hierarchy.
@@ -21,41 +24,115 @@ def size_solar_system(
       - Residential and Government: maximum 100% of sanctioned load.
       - Industrial, Commercial and Other: maximum 80% of sanctioned load / contracted demand.
     Applies the Zero-Overrun Rule: Never rounds above the grid statutory limit.
+    Correctly accounts for user-reported existing solar installations without double-counting.
     """
     category_lower = consumer_category.lower()
     is_residential_or_govt = (
-        "residential" in category_lower or "individual" in category_lower or 
+        "residential" in category_lower or "individual" in category_lower or
         "rwa" in category_lower or "ghs" in category_lower or "govt" in category_lower or "government" in category_lower
     )
     grid_limit_factor = 1.0 if is_residential_or_govt else 0.80
-
-    # 1. Physical rooftop constraint (10.0 m² / kWp for crystalline Mono-PERC)
+    allowed_grid_kw = sanctioned_load_kw * grid_limit_factor
     specific_area_m2_per_kw = 10.0
+    gross_theoretical_kw = round(max(0.0, usable_area_m2 / specific_area_m2_per_kw), 2)
+
+    # Handle existing installation
+    existing_kw = float(existing_solar_capacity_kw or 0.0)
+    status_upper = (existing_solar_status or "").upper()
+    is_existing_flagged = status_upper in ["YES", "SOLAR_PANELS_DETECTED"]
+
+    # If solar panels were visually detected or user confirmed existing, auto-infer capacity from occupied area if kw not given
+    if is_existing_flagged and existing_kw <= 0.0 and existing_occupied_area_m2 and float(existing_occupied_area_m2) > 0.0:
+        existing_kw = round(float(existing_occupied_area_m2) / specific_area_m2_per_kw, 2)
+
+    has_existing = is_existing_flagged and (existing_kw > 0.0 or (existing_occupied_area_m2 and float(existing_occupied_area_m2) > 0.0))
+
+    if has_existing:
+        # Subtract area already physically occupied by existing panels
+        if existing_occupied_area_m2 is not None and float(existing_occupied_area_m2) > 0.0:
+            existing_occupied_area = float(existing_occupied_area_m2)
+        else:
+            existing_occupied_area = existing_kw * specific_area_m2_per_kw
+
+        effective_usable_area = max(0.0, usable_area_m2 - existing_occupied_area)
+
+        # Physical headroom for additional expansion
+        p_physical_exact = max(0.0, effective_usable_area / specific_area_m2_per_kw)
+        p_physical_stepped = math.floor(p_physical_exact * 2.0) / 2.0
+
+        # Grid headroom for additional solar under DISCOM statutory load cap
+        remaining_grid_cap = max(0.0, allowed_grid_kw - existing_kw)
+        p_grid_stepped = math.floor(remaining_grid_cap * 2.0) / 2.0
+
+        # Consumption matching headroom
+        p_consumption_stepped = None
+        if annual_consumption_kwh and annual_consumption_kwh > 0:
+            existing_annual_gen = existing_kw * 1500.0
+            remaining_cons = max(0.0, annual_consumption_kwh - existing_annual_gen)
+            p_consumption_stepped = math.floor((remaining_cons / 1500.0) * 2.0) / 2.0
+
+        feasible = min(p_physical_stepped, p_grid_stepped)
+        if p_consumption_stepped is not None:
+            feasible = min(feasible, p_consumption_stepped)
+
+        recommended_additional_kw = max(0.0, feasible)
+
+        if recommended_additional_kw == 0.0:
+            if remaining_grid_cap <= 0.0:
+                binding_constraint = "EXISTING_GRID_CAP_EXHAUSTED"
+                sizing_rationale = (
+                    f"No additional solar capacity recommended: Existing {existing_kw:.1f} kW installation already utilizes "
+                    f"100% of your {allowed_grid_kw:.1f} kW statutory grid limit under TGERC 2025."
+                )
+            else:
+                binding_constraint = "EXISTING_ROOFTOP_AREA_EXHAUSTED"
+                sizing_rationale = (
+                    f"No additional solar capacity recommended: Usable roof space ({usable_area_m2:.1f} m²) is already fully "
+                    f"occupied by the existing {existing_kw:.1f} kW system (approx. {existing_occupied_area:.1f} m²)."
+                )
+        else:
+            binding_constraint = "ADDITIONAL_CAPACITY_EXPANSION"
+            sizing_rationale = (
+                f"Recommended additional expansion of {recommended_additional_kw:.1f} kWp (Total combined: {existing_kw + recommended_additional_kw:.1f} kWp). "
+                f"Remaining usable roof: {effective_usable_area:.1f} m², remaining grid headroom: {remaining_grid_cap:.1f} kW."
+            )
+
+        return {
+            "usable_area_m2": round(usable_area_m2, 2),
+            "effective_usable_area_m2": round(effective_usable_area, 2),
+            "gross_theoretical_capacity_kw": gross_theoretical_kw,
+            "existing_occupied_area_m2": round(existing_occupied_area, 2),
+            "existing_solar_capacity_kw": round(existing_kw, 2),
+            "existing_solar_status": "YES",
+            "physical_max_kw": round(p_physical_stepped, 2),
+            "sanctioned_load_limit_kw": round(allowed_grid_kw, 2),
+            "remaining_grid_headroom_kw": round(remaining_grid_cap, 2),
+            "category_grid_limit_pct": round(grid_limit_factor * 100.0, 1),
+            "recommended_capacity_kw": round(recommended_additional_kw, 2),
+            "total_combined_capacity_kw": round(existing_kw + recommended_additional_kw, 2),
+            "binding_constraint": binding_constraint,
+            "sizing_rationale": sizing_rationale
+        }
+
+    # Standard clean-slate sizing (No existing solar or unverified)
     p_physical_exact = max(0.0, usable_area_m2 / specific_area_m2_per_kw)
     p_physical_stepped = math.floor(p_physical_exact * 2.0) / 2.0
 
-    # 2. Grid regulatory constraint (TGERC Reg 1 of 2025: 100% for Res/Govt, 80% for Comm/Ind)
-    allowed_grid_kw = sanctioned_load_kw * grid_limit_factor
     p_grid_stepped = math.floor(allowed_grid_kw * 2.0) / 2.0
 
-    # 3. Consumption matching constraint (if consumption is supplied)
     p_consumption_stepped = None
     if annual_consumption_kwh and annual_consumption_kwh > 0:
         cuf_kwh_per_kw_year = 1500.0
         p_cons_exact = annual_consumption_kwh / cuf_kwh_per_kw_year
         p_consumption_stepped = math.floor(p_cons_exact * 2.0) / 2.0
 
-    # Determine feasible capacity by taking the minimum of all active constraints
     feasible = min(p_physical_stepped, p_grid_stepped)
     if p_consumption_stepped is not None:
         feasible = min(feasible, p_consumption_stepped)
 
-    # Minimum practical rooftop installation is 1.0 kWp (or 0.5 kWp if micro-roof)
     recommended_kw = max(1.0 if p_physical_stepped >= 1.0 and p_grid_stepped >= 1.0 else 0.5, feasible)
-    # Ensure zero overrun against statutory grid limit
     recommended_kw = min(recommended_kw, p_grid_stepped)
 
-    # Determine binding constraint
     if recommended_kw == p_grid_stepped and p_grid_stepped < p_physical_stepped:
         binding_constraint = "GRID_SANCTIONED_LOAD"
         cat_desc = "Residential/Govt (100% cap)" if is_residential_or_govt else "Commercial/Industrial (80% cap under TGERC Reg 1 of 2025)"
@@ -76,12 +153,27 @@ def size_solar_system(
             f"System capacity is optimized at {recommended_kw:.1f} kW where usable rooftop area and grid statutory limit align."
         )
 
+    if existing_solar_status.upper() == "NOT_SURE":
+        sizing_rationale = (
+            f"Preliminary potential sized at {recommended_kw:.1f} kWp (UNVERIFIED). "
+            f"Existing installation status marked as UNVERIFIED. Full rooftop capacity is not confirmed as new available space; "
+            f"an on-site physical survey is required to verify whether solar panels are present."
+        )
+    elif existing_solar_status.upper() == "NO":
+        sizing_rationale += " [Existing installation status: User confirmed NO existing solar panels (User-reported)]."
+
     return {
         "usable_area_m2": round(usable_area_m2, 2),
+        "effective_usable_area_m2": round(usable_area_m2, 2),
+        "gross_theoretical_capacity_kw": gross_theoretical_kw,
+        "existing_occupied_area_m2": 0.0,
+        "existing_solar_capacity_kw": 0.0,
+        "existing_solar_status": existing_solar_status.upper(),
         "physical_max_kw": round(p_physical_stepped, 2),
         "sanctioned_load_limit_kw": round(p_grid_stepped, 2),
         "category_grid_limit_pct": round(grid_limit_factor * 100.0, 1),
         "recommended_capacity_kw": round(recommended_kw, 2),
+        "total_combined_capacity_kw": round(recommended_kw, 2),
         "binding_constraint": binding_constraint,
         "sizing_rationale": sizing_rationale
     }
@@ -200,7 +292,7 @@ def simulate_tgspdcl_bill(
     """
     Calculates monthly electricity bill based on official TGERC Retail Supply Tariff Order
     for TGSPDCL (FY 2026-27, Effective 01-04-2026 to 31-03-2027).
-    
+
     Fixed charges are strictly calculated from the consumer's sanctioned connected load
     under their contracted tariff classification, NEVER dynamically downgraded or
     calculated from installed solar capacity.
@@ -296,7 +388,7 @@ def simulate_net_metering_annual(
     seasonal_weights = [(m, (w / weight_sum) * 12.0) for m, w in seasonal_factors]
 
     base_monthly_gen = annual_solar_gen_kwh / 12.0
-    
+
     monthly_breakdown = []
     total_savings_months = 0.0
     total_surplus_units_year = 0.0

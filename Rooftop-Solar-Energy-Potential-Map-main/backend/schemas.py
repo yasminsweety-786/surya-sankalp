@@ -38,6 +38,7 @@ class SavePolygonRequest(BaseModel):
 class SavePolygonResponse(BaseModel):
     message: str
     polygon_id: int
+    polygonId: Optional[int] = None
     imagePath: str
     imageUrl: Optional[str] = None
     location_name: Optional[str] = None
@@ -45,10 +46,23 @@ class SavePolygonResponse(BaseModel):
 # Detection Schemas
 class RooftopDetectionItem(BaseModel):
     id: Optional[int] = None
+    segment_id: Optional[int] = None
+    temp_id: Optional[str] = None
     confidence: float
-    polygon_points: List[List[float]]  # List of [x, y] coordinates forming the mask contour
-    pixel_area: float  # Shoelace area in pixels
+    confidence_label: Optional[str] = None
+    polygon_points: List[List[float]] = []  # List of [x, y] coordinates forming the mask contour
+    pixel_area: float  # Area in pixels
     real_area_m2: Optional[float] = None  # Scaled area in square meters
+    centroid: Optional[List[float]] = None
+    is_rejected: Optional[bool] = False
+    rejection_reason: Optional[str] = None
+    # Automated Existing Solar Panel Detection Fields
+    existing_solar_detected: Optional[bool] = False
+    existing_solar_status: Optional[str] = "NO_VISIBLE_PANELS_DETECTED"  # SOLAR_PANELS_DETECTED | NO_VISIBLE_PANELS_DETECTED | UNABLE_TO_DETERMINE
+    panel_occupied_m2: Optional[float] = 0.0
+    panel_confidence: Optional[float] = None
+    panel_polygons: Optional[List[List[List[float]]]] = []
+    panel_detection_reason: Optional[str] = None
 
 class RunPredictionRequest(BaseModel):
     polygon_id: Optional[int] = None
@@ -65,8 +79,10 @@ class PredictionResponse(BaseModel):
     source_image_resolution: List[int]
     uncertainty_status: str
     detections: List[RooftopDetectionItem]
+    rejected_detections: Optional[List[RooftopDetectionItem]] = []
     original_image_url: Optional[str] = None
     overlay_image_url: Optional[str] = None
+    processed_image_url: Optional[str] = None
 
 # Solar Estimation Schemas
 class SolarEstimateRequest(BaseModel):
@@ -112,6 +128,10 @@ class FinancialAssessmentRequest(BaseModel):
     self_consumption_scenario: Optional[str] = "MODERATE"  # LOW (35%), MODERATE (60%), HIGH (85%), CUSTOM
     custom_self_consumption_factor: Optional[float] = None
     custom_cost_per_kw: Optional[float] = None
+    existing_solar_status: Optional[str] = "NO"  # "NO" | "YES" | "NOT_SURE"
+    existing_solar_capacity_kw: Optional[float] = 0.0
+    existing_occupied_area_m2: Optional[float] = None
+    selected_segment_id: Optional[int] = None
 
 class FinancialAssessmentResponse(BaseModel):
     message: str

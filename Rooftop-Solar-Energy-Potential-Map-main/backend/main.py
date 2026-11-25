@@ -19,7 +19,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from backend.database import init_db, get_db
 from backend.schemas import (
     UserSignupRequest, UserLoginRequest, UserResponse,
-    SavePolygonRequest, SavePolygonResponse,
+    SavePolygonRequest, SavePolygonResponse, GeographicBounds,
     RunPredictionRequest, PredictionResponse, RooftopDetectionItem,
     SolarEstimateRequest, SolarEstimateResponse,
     FinancialAssessmentRequest, FinancialAssessmentResponse, TariffListResponse
@@ -164,14 +164,16 @@ def get_city_presets():
     return {"presets": CITY_PRESETS}
 
 @app.get("/api/geocode")
-def geocode_location(query: str):
-    if not query or len(query.strip()) < 2:
+def geocode_location(query: Optional[str] = None, q: Optional[str] = None):
+    search_str = query or q
+    if not search_str or len(search_str.strip()) < 2:
         raise HTTPException(status_code=400, detail="Query string too short")
-    q = query.strip()
+    search_term = search_str.strip()
+    q = search_term
     
     # 1. Check presets
     for p in CITY_PRESETS:
-        if q.lower() in p["name"].lower() or q.lower() in p["display_name"].lower():
+        if search_term.lower() in p["name"].lower() or search_term.lower() in p["display_name"].lower():
             delta = 0.0012
             min_lat, max_lat = p["lat"] - delta, p["lat"] + delta
             min_lng, max_lng = p["lng"] - delta, p["lng"] + delta
@@ -255,6 +257,16 @@ def save_polygon(data: SavePolygonRequest, db=Depends(get_db)):
         filename = f"{user_identifier}_{timestamp_str}_polygon_image.png"
         saved_image_path = os.path.join(UPLOAD_DIR, filename)
 
+        # Automatically compute bounds if lat/lng are provided
+        if not data.bounds and data.lat is not None and data.lng is not None:
+            delta = 0.0012
+            data.bounds = GeographicBounds(
+                minLat=data.lat - delta,
+                maxLat=data.lat + delta,
+                minLng=data.lng - delta,
+                maxLng=data.lng + delta
+            )
+
         # Determine satellite imagery source URL
         img_url = data.imageUrl
         if not img_url and data.bounds:
@@ -288,15 +300,28 @@ def save_polygon(data: SavePolygonRequest, db=Depends(get_db)):
                 logger.warning(f"Remote satellite image fetch failed ({net_err}), using local sample.")
 
         if not downloaded:
-            sample_src = os.path.join(UPLOAD_DIR, "1_polygon_image.png")
-            if os.path.exists(sample_src):
-                img = Image.open(sample_src).convert("RGB")
-                img.save(saved_image_path, "PNG")
+            is_ocean = (
+                (data.location_name and any(k in data.location_name for k in ["Ocean", "Null", "Water", "Sea"]))
+                or (data.lat == 0.0 and data.lng == 0.0)
+            )
+            if is_ocean:
+                ocean_img = Image.new("RGB", (640, 640), color=(18, 48, 86))
+                ocean_img.save(saved_image_path, "PNG")
             else:
-                blank = Image.new("RGB", (640, 640), color=(120, 120, 120))
-                blank.save(saved_image_path, "PNG")
+                sample_src = os.path.join(UPLOAD_DIR, "1_polygon_image.png")
+                if not os.path.exists(sample_src):
+                    for f in os.listdir(UPLOAD_DIR):
+                        if f.endswith("_polygon_image.png") and not f.endswith("_overlay.png") and not f.endswith("_processed.png"):
+                            sample_src = os.path.join(UPLOAD_DIR, f)
+                            break
+                if os.path.exists(sample_src):
+                    img = Image.open(sample_src).convert("RGB")
+                    img.save(saved_image_path, "PNG")
+                else:
+                    blank = Image.new("RGB", (640, 640), color=(120, 120, 120))
+                    blank.save(saved_image_path, "PNG")
 
-        bounds_json = json.dumps(data.bounds.dict()) if data.bounds else None
+        bounds_json = json.dumps(data.bounds.model_dump()) if data.bounds else None
         
         cursor = db.cursor()
         cursor.execute("""
@@ -309,6 +334,7 @@ def save_polygon(data: SavePolygonRequest, db=Depends(get_db)):
         return {
             "message": "Polygon and image saved successfully",
             "polygon_id": polygon_id,
+            "polygonId": polygon_id,
             "imagePath": saved_image_path,
             "imageUrl": f"/uploads/{filename}",
             "location_name": data.location_name
@@ -325,7 +351,7 @@ def api_run_prediction(data: RunPredictionRequest, db=Depends(get_db)):
         if data.polygon_id:
             cursor.execute("SELECT * FROM polygons WHERE id = ?", (data.polygon_id,))
         else:
-            cursor.execute("SELECT * FROM polygons ORDER BY created_at DESC LIMIT 1")
+            cursor.execute("SELECT * FROM polygons WHERE location_name NOT LIKE '%Ocean%' AND location_name NOT LIKE '%Null%' ORDER BY id DESC LIMIT 1")
             
         polygon = cursor.fetchone()
         image_path = None
@@ -375,25 +401,59 @@ def api_run_prediction(data: RunPredictionRequest, db=Depends(get_db)):
                 ))
                 detection_items.append(RooftopDetectionItem(
                     id=cursor.lastrowid,
+                    segment_id=d.get("segment_id", len(detection_items) + 1),
                     confidence=d["confidence"],
+                    confidence_label=d.get("confidence_label"),
                     polygon_points=d["polygon_points"],
                     pixel_area=d["pixel_area"],
-                    real_area_m2=d["real_area_m2"]
+                    real_area_m2=d["real_area_m2"],
+                    centroid=d.get("centroid"),
+                    is_rejected=False,
+                    existing_solar_detected=d.get("existing_solar_detected", False),
+                    existing_solar_status=d.get("existing_solar_status", "NO_VISIBLE_PANELS_DETECTED"),
+                    panel_occupied_m2=d.get("panel_occupied_m2", 0.0),
+                    panel_confidence=d.get("panel_confidence"),
+                    panel_polygons=d.get("panel_polygons", []),
+                    panel_detection_reason=d.get("panel_detection_reason")
                 ))
             db.commit()
         else:
             for d in seg_result["detections"]:
                 detection_items.append(RooftopDetectionItem(
+                    segment_id=d.get("segment_id", len(detection_items) + 1),
                     confidence=d["confidence"],
+                    confidence_label=d.get("confidence_label"),
                     polygon_points=d["polygon_points"],
                     pixel_area=d["pixel_area"],
-                    real_area_m2=d["real_area_m2"]
+                    real_area_m2=d["real_area_m2"],
+                    centroid=d.get("centroid"),
+                    is_rejected=False,
+                    existing_solar_detected=d.get("existing_solar_detected", False),
+                    existing_solar_status=d.get("existing_solar_status", "NO_VISIBLE_PANELS_DETECTED"),
+                    panel_occupied_m2=d.get("panel_occupied_m2", 0.0),
+                    panel_confidence=d.get("panel_confidence"),
+                    panel_polygons=d.get("panel_polygons", []),
+                    panel_detection_reason=d.get("panel_detection_reason")
                 ))
+
+        rejected_items: list[RooftopDetectionItem] = []
+        for r_item in seg_result.get("rejected_detections", []):
+            rejected_items.append(RooftopDetectionItem(
+                temp_id=r_item.get("temp_id"),
+                confidence=r_item["confidence"],
+                pixel_area=r_item["pixel_area"],
+                real_area_m2=r_item.get("real_area_m2"),
+                is_rejected=True,
+                rejection_reason=r_item.get("rejection_reason")
+            ))
 
         orig_url = f"/uploads/{os.path.basename(image_path)}" if image_path else None
         overlay_url = None
         if seg_result.get("overlay_image_path") and os.path.exists(seg_result["overlay_image_path"]):
             overlay_url = f"/uploads/{os.path.basename(seg_result['overlay_image_path'])}"
+        processed_url = None
+        if seg_result.get("processed_image_path") and os.path.exists(seg_result["processed_image_path"]):
+            processed_url = f"/uploads/{os.path.basename(seg_result['processed_image_path'])}"
 
         return {
             "message": "Prediction completed successfully",
@@ -405,8 +465,10 @@ def api_run_prediction(data: RunPredictionRequest, db=Depends(get_db)):
             "source_image_resolution": seg_result["source_image_resolution"],
             "uncertainty_status": seg_result["uncertainty_status"],
             "detections": detection_items,
+            "rejected_detections": rejected_items,
             "original_image_url": orig_url,
-            "overlay_image_url": overlay_url
+            "overlay_image_url": overlay_url,
+            "processed_image_url": processed_url
         }
     except Exception as e:
         logger.error(f"Error running prediction: {e}")
@@ -572,6 +634,10 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
                 trusted_usable_area = est["usable_area_m2"]
                 annual_solar_gen_kwh = est["annual_energy_potential"] / 1000.0  # Wh to kWh
 
+        if data.selected_segment_id and data.rooftop_area_m2 and data.rooftop_area_m2 > 0:
+            trusted_rooftop_area = data.rooftop_area_m2
+            trusted_usable_area = data.rooftop_area_m2 * 0.70
+
         if not trusted_rooftop_area:
             if data.rooftop_area_m2 and data.rooftop_area_m2 > 0:
                 trusted_rooftop_area = data.rooftop_area_m2
@@ -590,7 +656,10 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
             usable_area_m2=trusted_usable_area,
             sanctioned_load_kw=sanctioned_load,
             annual_consumption_kwh=monthly_consumption * 12.0,
-            consumer_category=consumer_category
+            consumer_category=consumer_category,
+            existing_solar_capacity_kw=float(data.existing_solar_capacity_kw or 0.0),
+            existing_solar_status=data.existing_solar_status or "NO",
+            existing_occupied_area_m2=float(data.existing_occupied_area_m2) if data.existing_occupied_area_m2 is not None else None
         )
         recommended_capacity = sizing["recommended_capacity_kw"]
 
@@ -685,18 +754,14 @@ def post_financial_assessment(data: FinancialAssessmentRequest, db=Depends(get_d
             "Bill savings are model projections based on selected self-consumption scenario; actual bills depend on meter readings and DISCOM fuel surcharge adjustments."
         ]
 
+        system_sizing_dict = {
+            "trusted_rooftop_area_m2": trusted_rooftop_area,
+            **sizing
+        }
+
         return {
             "message": "Financial feasibility assessment computed successfully",
-            "system_sizing": {
-                "trusted_rooftop_area_m2": trusted_rooftop_area,
-                "usable_area_m2": trusted_usable_area,
-                "physical_max_kw": sizing["physical_max_kw"],
-                "sanctioned_load_limit_kw": sizing["sanctioned_load_limit_kw"],
-                "category_grid_limit_pct": sizing["category_grid_limit_pct"],
-                "recommended_capacity_kw": recommended_capacity,
-                "binding_constraint": sizing["binding_constraint"],
-                "sizing_rationale": sizing["sizing_rationale"]
-            },
+            "system_sizing": system_sizing_dict,
             "capex_and_subsidy": {
                 "cost_per_kw": cost_per_kw,
                 "cost_benchmark_source": cost_source,

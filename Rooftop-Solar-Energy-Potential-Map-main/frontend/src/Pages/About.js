@@ -41,11 +41,38 @@ export default function About() {
           </div>
         </div>
 
-        <h2 className="text-2xl font-semibold text-yellow-400 mb-3">Measurement Disclosure & Uncertainty</h2>
-        <div className="bg-yellow-950 border border-yellow-700 text-yellow-200 p-4 rounded-lg text-sm mb-6">
-          <strong>Methodological Transparency:</strong> Uncalibrated optical satellite tiles lack 3D elevation tags. 
-          Rooftop usable space is calculated with an adjustable assumption factor (default 70%) to account for parapets, 
-          water tanks, and shadow setbacks. All estimations distinguish live NASA API feeds from verified regional insolation baselines.
+        <h2 id="methodology" className="text-2xl font-semibold text-yellow-400 mb-3">
+          Methodology & Disclosures
+        </h2>
+        <div className="bg-yellow-950/60 border border-yellow-700/60 text-yellow-200 p-4 rounded-lg text-sm mb-6 leading-relaxed">
+          <strong>Methodological Transparency:</strong> Uncalibrated optical satellite tiles lack 3D LiDAR/elevation data. 
+          Rooftop usable space is calculated using an adjustable setback factor (default 70%) to account for parapet shadows, 
+          water storage tanks, HVAC units, and maintenance pathways. All solar estimations query live NASA POWER 
+          meteorological irradiance data with verified regional baselines.
+        </div>
+
+        <h2 className="text-2xl font-semibold text-emerald-400 mb-3">Regulatory & Tariff Reference Framework</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 text-xs space-y-1">
+            <h3 className="font-bold text-white text-sm">PM Surya Ghar: Muft Bijli Yojana</h3>
+            <p className="text-gray-300">Central Financial Assistance (CFA) subsidy structure:</p>
+            <p className="text-gray-400">₹33,000 for 1 kW, ₹66,000 for 2 kW, and ₹78,000 for systems ≥ 3 kW for eligible residential consumers.</p>
+          </div>
+          <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 text-xs space-y-1">
+            <h3 className="font-bold text-white text-sm">TGERC Regulation No. 1 of 2025</h3>
+            <p className="text-gray-300">Statutory Net Metering Grid Capacities:</p>
+            <p className="text-gray-400">Residential & Government: Up to 100% of sanctioned load. Commercial & Industrial: Capped at 80% of sanctioned load / contracted demand.</p>
+          </div>
+          <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 text-xs space-y-1">
+            <h3 className="font-bold text-white text-sm">TGERC Proceeding (29-12-2025)</h3>
+            <p className="text-gray-300">Solar Export Settlement Rate:</p>
+            <p className="text-gray-400">Approved APPC solar export credit rate of ₹2.57/kWh for net surplus energy exported to the distribution grid.</p>
+          </div>
+          <div className="bg-gray-800/80 p-4 rounded-lg border border-gray-700 text-xs space-y-1">
+            <h3 className="font-bold text-white text-sm">TGSPDCL Tariff Order FY 2026-27</h3>
+            <p className="text-gray-300">Official Retail Supply Slabs (01-04-2026 to 31-03-2027):</p>
+            <p className="text-gray-400">Verified LT-I Domestic telescopic slabs and statutory fixed charges applied for precise bill simulation.</p>
+          </div>
         </div>
 
         <div className="border-t border-gray-800 pt-4 text-gray-500 text-sm text-center">
